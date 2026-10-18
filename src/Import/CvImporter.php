@@ -23,11 +23,11 @@ final class CvImporter
             throw new \RuntimeException('This file does not appear to be a DOCX document.');
         }
         if ($extension === 'pdf' && $mime !== 'application/pdf') throw new \RuntimeException('This file does not appear to be a PDF document.');
-        if ($extension === 'pdf') return ['text' => $this->extractPdf($tmp), 'format' => 'PDF'];
+        if ($extension === 'pdf') return ['text' => $this->extractPdfText($tmp), 'format' => 'PDF'];
         return ['text' => $this->extractDocx($tmp), 'format' => 'DOCX'];
     }
 
-    private function extractPdf(string $path): string
+    public function extractPdfText(string $path): string
     {
         if (!function_exists('proc_open')) throw new \RuntimeException('PDF text extraction is unavailable on this server.');
         $binary = trim((string)($_ENV['PDFTOTEXT_BIN'] ?? ''));

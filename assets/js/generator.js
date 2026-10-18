@@ -12,6 +12,15 @@
   const editor = document.getElementById('editorFields');
   const previewState = document.getElementById('previewState');
   const toast = document.getElementById('appToast');
+  const visualPreviewTab = document.getElementById('visualPreviewTab');
+  const atsTextTab = document.getElementById('atsTextTab');
+  const atsTextStatus = document.getElementById('atsTextStatus');
+  const atsTextWarnings = document.getElementById('atsTextWarnings');
+  const atsTextPreview = document.getElementById('atsTextPreview');
+  const refreshAtsTextButton = document.getElementById('refreshAtsText');
+  const copyAtsTextButton = document.getElementById('copyAtsText');
+  let atsPreviewDirty = true;
+  let atsPreviewLoading = false;
   const schemas = {
     skills:{title:'Skills',hint:'Use accurate skill names and optional groups.',fields:[['name','Skill or group'],['details','Details / tools']]},
     experience:{title:'Experience',hint:'List the most recent role first. Use one accomplishment per bullet.',fields:[['title','Job title'],['company','Company'],['location','Location'],['start','Start date'],['end','End date'],['bullets','Accomplishments and responsibilities']]},
@@ -39,7 +48,7 @@
     const control = document.createElement(multiline ? 'textarea' : 'input');
     if (!multiline) control.type = key === 'url' ? 'url' : 'text';
     control.value = Array.isArray(value) ? value.join('\n') : String(value ?? '');
-    control.addEventListener('input', () => {setter(multiline && key === 'bullets' ? control.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean) : control.value);if(aiEnabled&&['summary','bullets'].includes(key))renderAutofixTargets();});
+    control.addEventListener('input', () => {setter(multiline && key === 'bullets' ? control.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean) : control.value);schedulePreview();if(aiEnabled&&['summary','bullets'].includes(key))renderAutofixTargets();});
     wrap.append(control); parent.append(wrap);
   }
   function autofixTargets() {
@@ -118,7 +127,36 @@
     try { const result=await post('preview',{cv_json:JSON.stringify(state)}); document.getElementById('cvPreview').srcdoc=result.html; previewState.textContent='Up to date'; }
     catch(error){previewState.textContent='Preview unavailable';}
   }
-  function schedulePreview(){clearTimeout(previewTimer);previewTimer=setTimeout(updatePreview,350);}
+  function renderAtsTextWarnings(warnings){
+    atsTextWarnings.replaceChildren();
+    if(!warnings.length){const note=document.createElement('p');note.className='ats-text-clear';note.textContent='No obvious extraction warnings were detected. Review the extracted text below for accuracy.';atsTextWarnings.append(note);return;}
+    warnings.forEach(warning=>{const item=document.createElement('article');item.className='ats-text-warning';const title=document.createElement('strong');title.textContent=warning.title;const message=document.createElement('p');message.textContent=warning.message;item.append(title,message);atsTextWarnings.append(item);});
+  }
+  async function updateAtsTextPreview(){
+    if(atsPreviewLoading)return;
+    atsPreviewLoading=true;refreshAtsTextButton.disabled=true;refreshAtsTextButton.textContent='Checking…';atsTextStatus.textContent='Generating the current PDF and checking its extracted text…';atsTextWarnings.replaceChildren();
+    const requestSnapshot=JSON.stringify(state);
+    try{
+      const result=await post('ats_pdf_preview',{cv_json:requestSnapshot});
+      if(JSON.stringify(state)!==requestSnapshot){atsPreviewDirty=true;atsTextStatus.textContent='The CV changed while this check was running. Check the PDF text again.';return;}
+      atsTextPreview.textContent=result.text||'';copyAtsTextButton.disabled=!result.text;atsPreviewDirty=false;
+      atsTextStatus.textContent=result.message||(result.text?'PDF text extracted. Review the warnings and reading order below.':'No PDF text was extracted.');
+      renderAtsTextWarnings(result.warnings||[]);
+    }catch(error){atsPreviewDirty=true;atsTextStatus.textContent='PDF text check failed: '+error.message;atsTextPreview.textContent='';copyAtsTextButton.disabled=true;}
+    finally{atsPreviewLoading=false;refreshAtsTextButton.disabled=false;refreshAtsTextButton.textContent=atsPreviewDirty?'Check updated PDF text':'Refresh PDF text';}
+  }
+  function setPreviewMode(mode){
+    const showAtsText=mode==='ats';
+    visualPreviewTab.classList.toggle('is-active',!showAtsText);visualPreviewTab.setAttribute('aria-selected',String(!showAtsText));
+    atsTextTab.classList.toggle('is-active',showAtsText);atsTextTab.setAttribute('aria-selected',String(showAtsText));
+    document.getElementById('visualPreviewView').hidden=showAtsText;document.getElementById('atsTextView').hidden=!showAtsText;
+    if(showAtsText&&atsPreviewDirty)updateAtsTextPreview();
+  }
+  visualPreviewTab.addEventListener('click',()=>setPreviewMode('visual'));
+  atsTextTab.addEventListener('click',()=>setPreviewMode('ats'));
+  refreshAtsTextButton.addEventListener('click',updateAtsTextPreview);
+  copyAtsTextButton.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(atsTextPreview.textContent);flash('Extracted PDF text copied.');}catch(error){flash('Clipboard access is unavailable in this browser.');}});
+  function schedulePreview(){clearTimeout(previewTimer);atsPreviewDirty=true;copyAtsTextButton.disabled=true;if(!atsPreviewLoading&&atsTextStatus)atsTextStatus.textContent='The CV changed. Check the updated PDF text when ready.';previewTimer=setTimeout(updatePreview,350);}
   async function refreshDrafts(){
     const list=document.getElementById('draftList');list.replaceChildren();
     try{

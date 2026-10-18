@@ -42,6 +42,7 @@ The old CV Maker is retained as migration reference only. It will be replaced du
 - Make the default template a readable, single-column layout with standard section headings, selectable text, conventional bullets, and a predictable top-to-bottom reading order.
 - Avoid layout elements that can disrupt text extraction, such as sidebars, multi-column layouts, decorative icons, charts, images, and important information in headers or footers.
 - Keep a live preview and saved drafts. Render the preview and exports from the same data and formatting rules to prevent the current PHP/JavaScript template drift.
+- Provide an on-demand text view extracted from the generated PDF. Show the extracted reading order and warn about incomplete numeric dates or expected section headings that are missing or out of order; explain that ATS products can parse the same document differently.
 
 ### Checker
 
@@ -155,8 +156,8 @@ Use the existing mPDF installation for PDF output. Before adding DOCX/PDF parsin
 **Code implementation started:** 18 October 2026.
 
 - Foundation and compatibility: implemented. A versioned canonical CV schema, legacy JSON adapter, shared renderer, CSRF helpers, and prepared-statement draft repository are in place. At the user's direction, the local database is `cv_maker`; its `draft_cvs` schema was initialized. No draft rows were copied from `toolbox`, which was left untouched.
-- Generator: implemented. The app now has repeatable editable sections, a server-rendered preview, draft save/load/delete, and an ATS-first one-column template. Experience and education are sorted newest-first when dates can be read.
-- Checker: implemented. Rule-based findings and heuristic scoring cover common headings, contact details, date styles, bullets, measurable results, possible extraction artifacts, and optional job-description terms.
+- Generator: implemented. The app now has repeatable editable sections, a server-rendered preview, draft save/load/delete, an ATS-first one-column template, and an on-demand generated-PDF text check with date-fragment and section-heading warnings. Experience and education are sorted newest-first when dates can be read.
+- Checker: implemented. Rule-based findings and heuristic scoring cover common headings, contact details, date styles and incomplete numeric date fragments, bullets, measurable results, possible extraction artifacts, and optional job-description terms.
 - Converter: implemented. DOCX and selectable-text PDF extraction are local, size-limited, and temporary-file based. Common experience, education, project, certification, and language content is mapped into editable fields where possible; less common headings remain in editable custom sections. Optional AI mapping uses an editable excerpt and requires a deliberate review action before staging the suggested CV.
 - Checker: findings include a named affected area and concise evidence text alongside severity and guidance.
 - Exports: implemented in code for DOCX, text-based PDF, TXT, and HTML using the canonical CV renderer.

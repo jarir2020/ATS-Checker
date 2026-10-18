@@ -4,9 +4,9 @@ ATS Checker is a PHP CV workspace with an ATS-friendly generator, a text-based c
 
 ## Features
 
-- **Generator:** structured contact, summary, skills, experience, education, projects, certifications, languages, and custom sections. The preview and exports share one single-column renderer.
+- **Generator:** structured contact, summary, skills, experience, education, projects, certifications, languages, and custom sections. The preview and exports share one single-column renderer. An on-demand ATS text check extracts text from a fresh PDF export, shows its reading order, and flags suspicious split dates or missing/out-of-order section headings.
 - **Drafts:** save, load, and delete CV drafts in the `cv_maker.draft_cvs` table. Existing legacy draft JSON is converted when loaded; new records use a versioned canonical format. `DB_NAME` can be changed in `.env` if needed.
-- **Checker:** explainable rule-based findings for contact details, common headings, dates, bullets, measurable outcomes, possible extraction artifacts, and optional job-description terms. Findings identify an affected area and evidence. Its heuristic score does not predict an employer’s ATS decision.
+- **Checker:** explainable rule-based findings for contact details, common headings, dates and incomplete numeric date fragments, bullets, measurable outcomes, possible extraction artifacts, and optional job-description terms. Findings identify an affected area and evidence. Its heuristic score does not predict an employer’s ATS decision.
 - **Converter:** import DOCX or text-based PDF files into editable sections. Common sections map into structured fields; uncertain or less common sections remain editable for review. Scanned PDFs and OCR are not supported.
 - **Exports:** DOCX, text-based PDF, plain text, and HTML, rendered from the same CV data.
 - **Optional AI help:** configure Gemini or Agnes AI for summary and experience-bullet rewrites, a review-first ATS autofixer, job-description terms to review, checker explanations, or suggested import mapping. Autofix suggestions update only the current editor after individual review; users save drafts themselves. AI controls are hidden when the selected provider key is missing, and the server rejects AI requests in that state. Email, phone, and profile links are removed from checker excerpts before they are sent; autofix sends only selected summary/bullet text and local finding titles, while import text can be edited before sending.
@@ -57,7 +57,7 @@ Set `AI_PROVIDER` to `gemini` or `agnes`; the browser displays the selected prov
 
 - The local `cv_maker` database and `draft_cvs` table have been initialized. The previous `toolbox` database was left untouched; no legacy draft rows were copied. Keep a backup before moving any existing drafts between databases.
 - The converter supports DOCX and selectable-text PDF uploads up to 10 MB. Image-only PDF OCR, encrypted PDFs, and automatic high-confidence section mapping are outside the first version.
-- The checker evaluates extracted text and cannot confirm the source document's visual layout. ATS products differ; findings and scores are guidance, not a guarantee.
+- The checker evaluates extracted text and cannot confirm the source document's visual layout. The generator's ATS text check reviews text extracted from the generated PDF with `pdftotext`; it does not predict every ATS parser. ATS products differ, so findings and scores are guidance, not a guarantee.
 - The included PHP development server is for local use. Configure a production web server, upload limits, HTTPS, and environment secrets separately before deployment.
 
 ## License

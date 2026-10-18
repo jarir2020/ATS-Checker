@@ -69,6 +69,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $cv = postedCv();
             jsonResponse(['ok' => true, 'html' => CvRenderer::html($cv)]);
         }
+        if ($action === 'ats_pdf_preview') {
+            $cv = postedCv();
+            if (trim(CvRenderer::text($cv)) === '') {
+                jsonResponse(['ok' => true, 'text' => '', 'warnings' => [], 'message' => 'Add CV content to check its PDF text.']);
+            }
+            $pdf = (new CvExporter())->export($cv, 'pdf')['body'];
+            if (strlen($pdf) > 20000000) throw new RuntimeException('This PDF is too large to inspect. Reduce the CV content and try again.');
+            $tempPdf = tempnam(sys_get_temp_dir(), 'ats-preview-');
+            if ($tempPdf === false) throw new RuntimeException('Could not prepare a temporary PDF for inspection.');
+            try {
+                if (file_put_contents($tempPdf, $pdf) !== strlen($pdf)) throw new RuntimeException('Could not prepare the generated PDF for inspection.');
+                $text = (new CvImporter())->extractPdfText($tempPdf);
+            } finally {
+                @unlink($tempPdf);
+            }
+
+            $review = (new AtsChecker())->inspect($text);
+            $warnings = array_values(array_filter($review['findings'], static fn($finding) => $finding['severity'] === 'warning'));
+            $expectedHeadings = [];
+            if ($cv['enabled_sections']['summary'] && trim($cv['summary']) !== '') $expectedHeadings[] = 'SUMMARY';
+            foreach ([
+                'skills' => 'SKILLS', 'experience' => 'EXPERIENCE', 'education' => 'EDUCATION',
+                'projects' => 'PROJECTS', 'certifications' => 'CERTIFICATIONS', 'languages' => 'LANGUAGES',
+            ] as $section => $heading) {
+                if ($cv['enabled_sections'][$section] && !empty($cv[$section])) $expectedHeadings[] = $heading;
+            }
+            if ($cv['enabled_sections']['custom_sections']) {
+                foreach ($cv['custom_sections'] as $section) {
+                    $heading = strtoupper(trim($section['title']));
+                    if ($heading !== '' && !in_array($heading, $expectedHeadings, true)) $expectedHeadings[] = $heading;
+                }
+            }
+            $lastHeadingOffset = -1;
+            foreach ($expectedHeadings as $heading) {
+                $pattern = '/^[\h\f]*' . preg_quote($heading, '/') . '[\h]*$/mi';
+                if (!preg_match($pattern, $text, $headingMatch, PREG_OFFSET_CAPTURE)) {
+                    $warnings[] = ['severity' => 'warning', 'title' => 'Section heading missing from PDF text', 'message' => 'The ' . $heading . ' heading was not found in the extracted PDF text.', 'section' => $heading, 'evidence' => $heading];
+                    continue;
+                }
+                $headingOffset = (int)$headingMatch[0][1];
+                if ($headingOffset < $lastHeadingOffset) {
+                    $warnings[] = ['severity' => 'warning', 'title' => 'Section order differs in PDF text', 'message' => 'The ' . $heading . ' heading appears out of order in the extracted PDF text.', 'section' => $heading, 'evidence' => $heading];
+                } else {
+                    $lastHeadingOffset = $headingOffset;
+                }
+            }
+            jsonResponse(['ok' => true, 'text' => $text, 'warnings' => $warnings]);
+        }
         if ($action === 'save_draft') {
             $cv = postedCv();
             $id = (new DraftRepository())->save(requestString('draft_name', 255), $cv, (int)($_POST['draft_id'] ?? 0));

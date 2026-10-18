@@ -8,6 +8,10 @@ final class AtsChecker
     public function inspect(string $text, string $jobDescription = ''): array
     {
         $possibleLayoutArtifacts = preg_match('/[│┃║]|\t{2,}/u', $text) === 1;
+        $splitDateEvidence = '';
+        if (preg_match('/(?<!\d)((?:0?[1-9]|1[0-2])\/(?:(?:0?[1-9]|[12]\d|3[01])\/)?)\h*(?=[\r\f]?$)/m', $text, $dateMatch)) {
+            $splitDateEvidence = trim($dateMatch[1]);
+        }
         $text = trim(preg_replace('/\s+/u', ' ', $text) ?? '');
         $findings = [];
         $score = 100;
@@ -46,6 +50,7 @@ final class AtsChecker
             $add('suggestion', 'No measurable results detected', 'Where accurate, add evidence such as scale, time saved, revenue, quality, or delivery outcomes.', 2, 'Experience and projects', 'No common numeric outcome pattern was detected.');
         }
         if ($possibleLayoutArtifacts) $add('warning', 'Possible column or table extraction artifacts', 'The extracted text contains separators that may indicate a complex layout. Review the source document reading order.', 10, 'Document layout', 'Column separators or repeated tabs were found in the source text.');
+        if ($splitDateEvidence !== '') $add('warning', 'Possible split numeric date', 'A numeric date fragment ends without its year. Review the date in the editor before exporting.', 6, 'Dates', 'Incomplete date fragment found: ' . $splitDateEvidence);
         if (preg_match('/\b(?:photo|headshot|references available upon request)\b/i', $text)) $add('suggestion', 'Optional content detected', 'A photo or a references statement may take space; check whether the target market expects it.', 1);
 
         $keywordResult = ['checked' => false, 'matched' => [], 'missing' => []];

@@ -40,7 +40,23 @@ pageHeader('ATS CV Generator');
         </section><?php endif; ?>
     </section>
     <aside class="preview-column">
-        <section class="panel preview-panel"><div class="panel-heading"><div><h2>Preview</h2><p>Rendered by the same PHP formatter as exports.</p></div><span id="previewState" class="muted">Updating…</span></div><iframe id="cvPreview" title="CV preview" sandbox="" referrerpolicy="no-referrer"></iframe></section>
+        <section class="panel preview-panel">
+            <div class="panel-heading"><div><h2>Preview</h2><p>Review the layout or inspect extracted PDF text.</p></div><span id="previewState" class="muted">Updating…</span></div>
+            <div class="preview-tabs" role="tablist" aria-label="CV preview mode">
+                <button class="preview-tab is-active" id="visualPreviewTab" type="button" role="tab" aria-selected="true" aria-controls="visualPreviewView">Visual layout</button>
+                <button class="preview-tab" id="atsTextTab" type="button" role="tab" aria-selected="false" aria-controls="atsTextView">ATS text check</button>
+            </div>
+            <div id="visualPreviewView" role="tabpanel" aria-labelledby="visualPreviewTab"><iframe id="cvPreview" title="Visual CV preview" sandbox="" referrerpolicy="no-referrer"></iframe></div>
+            <section id="atsTextView" role="tabpanel" aria-labelledby="atsTextTab" hidden>
+                <div class="ats-text-tools">
+                    <p>Text extracted from a fresh PDF export. ATS products differ; use this to review reading order and split content, not to predict an employer’s result.</p>
+                    <div><button class="button button-light" id="refreshAtsText" type="button">Check PDF text</button> <button class="button button-outline" id="copyAtsText" type="button" disabled>Copy text</button></div>
+                </div>
+                <p id="atsTextStatus" class="muted" aria-live="polite">Open this tab to inspect the current PDF text.</p>
+                <div id="atsTextWarnings" class="ats-text-warnings" aria-live="polite"></div>
+                <pre id="atsTextPreview" class="ats-text-preview">The extracted PDF text will appear here.</pre>
+            </section>
+        </section>
         <section class="panel draft-panel"><div class="panel-heading"><div><h2>Saved drafts</h2><p>Existing drafts remain in the current database table.</p></div><button class="text-button" id="refreshDrafts" type="button">Refresh</button></div><div id="draftList"><p class="muted">Loading drafts…</p></div></section>
     </aside>
 </div>
