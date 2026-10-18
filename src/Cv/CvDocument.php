@@ -30,10 +30,15 @@ final class CvDocument
     private static function repairImportArtifacts(array $cv): array
     {
         foreach ($cv['education'] as &$row) {
-            if (!preg_match('/^((?:0?[1-9]|1[0-2])\/)(?:\r\n|\r|\n|$)/', $row['details'], $match)) continue;
             if (!preg_match('/^(?:19|20)\d{2}$/', $row['year'])) continue;
-            $row['year'] = $match[1] . $row['year'];
-            $row['details'] = ltrim(substr($row['details'], strlen($match[0])), "\r\n");
+            $detailLines = preg_split('/\r\n|\r|\n/', $row['details']) ?: [];
+            foreach ($detailLines as $lineIndex => $line) {
+                if (!preg_match('/^\s*((?:0?[1-9]|1[0-2])\/)\s*$/', $line, $match)) continue;
+                $row['year'] = $match[1] . $row['year'];
+                array_splice($detailLines, $lineIndex, 1);
+                $row['details'] = implode("\n", $detailLines);
+                break;
+            }
         }
         unset($row);
 
