@@ -254,6 +254,15 @@ final class CvImporter
                 if ($date !== null) {
                     if ($row['start'] === '') { $row['start'] = $date['start']; $row['end'] = $date['end']; }
                     $line = trim($date['rest']);
+                    if ($line !== '' && $row['title'] !== '' && $row['company'] !== '' && !$bodyStarted && !$row['bullets']) {
+                        $role = trim($line, " \t|");
+                        if ($role !== '' && strpos($role, '|') === false) {
+                            $row['location'] = $row['company'];
+                            $row['company'] = $row['title'];
+                            $row['title'] = $role;
+                            continue;
+                        }
+                    }
                 }
                 if ($line === '') continue;
                 $isBullet = preg_match('/^(?:[•●▪◦*\-]|\d+[.)])\s+/u', $line) === 1;
@@ -319,6 +328,13 @@ final class CvImporter
                 if ($date !== null) {
                     if ($row['year'] === '') $row['year'] = $date['start'] . ' – ' . $date['end'];
                     $line = trim($date['rest']);
+                } elseif (preg_match('/(?<!\d)(?:0?[1-9]|1[0-2])\/(?:19|20)\d{2}(?!\d)/', $line, $numericDate, PREG_OFFSET_CAPTURE)) {
+                    if ($row['year'] === '') $row['year'] = $numericDate[0][0];
+                    $offset = (int)$numericDate[0][1];
+                    $line = trim(substr($line, 0, $offset) . ' ' . substr($line, $offset + strlen($numericDate[0][0])), " \t,;|–—-");
+                } elseif (preg_match('/^(?:0?[1-9]|1[0-2])\/$/', $line) && preg_match('/^(?:19|20)\d{2}$/', $row['year'])) {
+                    $row['year'] = $line . $row['year'];
+                    $line = '';
                 } elseif (preg_match('/\b(?:19|20)\d{2}\b/', $line, $yearMatch) && mb_strlen($line) < 50) {
                     if ($row['year'] === '') $row['year'] = $yearMatch[0];
                     $line = trim(str_replace($yearMatch[0], '', $line), " \t,;|–—-");
@@ -424,7 +440,9 @@ final class CvImporter
     private static function dateRange(string $line): ?array
     {
         $month = '(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)';
-        $date = '(?:(?:' . $month . ')\.?\s+)?(?:19|20)\d{2}|present|current|now';
+        $numericDate = '(?:(?:0?[1-9]|[12]\d|3[01])\/(?:0?[1-9]|1[0-2])\/(?:19|20)\d{2}|(?:0?[1-9]|1[0-2])\/(?:19|20)\d{2})';
+        $yearDate = '(?:(?:' . $month . ')\.?\s+)?(?:19|20)\d{2}';
+        $date = '(?:' . $numericDate . '|' . $yearDate . '|present|current|now)';
         if (!preg_match('/(' . $date . ')\s*(?:–|—|-|\bto\b)\s*(' . $date . ')/i', $line, $match, PREG_OFFSET_CAPTURE)) return null;
         $whole = $match[0][0];
         $offset = (int)$match[0][1];

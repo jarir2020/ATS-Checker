@@ -22,9 +22,37 @@ final class CvDocument
     public static function normalize(array $input): array
     {
         if (isset($input['schema_version']) && isset($input['personal'])) {
-            return self::fromCanonical($input);
+            return self::repairImportArtifacts(self::fromCanonical($input));
         }
-        return self::fromLegacy($input);
+        return self::repairImportArtifacts(self::fromLegacy($input));
+    }
+
+    private static function repairImportArtifacts(array $cv): array
+    {
+        foreach ($cv['education'] as &$row) {
+            if (!preg_match('/^((?:0?[1-9]|1[0-2])\/)(?:\r\n|\r|\n|$)/', $row['details'], $match)) continue;
+            if (!preg_match('/^(?:19|20)\d{2}$/', $row['year'])) continue;
+            $row['year'] = $match[1] . $row['year'];
+            $row['details'] = ltrim(substr($row['details'], strlen($match[0])), "\r\n");
+        }
+        unset($row);
+
+        foreach ($cv['experience'] as &$row) {
+            if ($row['title'] === '' || $row['company'] === '' || $row['location'] !== '') continue;
+            if (!preg_match('/^(?:19|20)\d{2}$/', $row['start']) || !$row['bullets']) continue;
+            if (!preg_match('/^(.+?)\s*\|\s*((?:0?[1-9]|1[0-2])\/(?:0?[1-9]|[12]\d|3[01])\/)\s*$/', $row['bullets'][0], $match)) continue;
+            $role = trim($match[1]);
+            if ($role === '') continue;
+            $employer = $row['title'];
+            $location = $row['company'];
+            $row['start'] = $match[2] . $row['start'];
+            $row['title'] = $role;
+            $row['company'] = $employer;
+            $row['location'] = $location;
+            array_shift($row['bullets']);
+        }
+        unset($row);
+        return $cv;
     }
 
     private static function fromCanonical(array $in): array

@@ -15,7 +15,7 @@ final class CvRenderer
         $cv['education'] = self::recentFirst($cv['education'], 'year', 'year');
         $p = $cv['personal'];
         $html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . self::e($p['name'] ?: 'CV') . '</title><style>';
-        $html .= 'body{font-family:Arial,Helvetica,sans-serif;color:#171717;font-size:11pt;line-height:1.45;margin:0 auto;padding:28px;max-width:780px}h1{font-size:22pt;margin:0 0 2px}h2{font-size:12pt;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #444;padding-bottom:3px;margin:18px 0 8px}h3{font-size:11pt;margin:0 0 2px}p{margin:3px 0 7px}.meta,.subtle{color:#333}.entry{margin:0 0 9px}.date{font-weight:normal}.cv-list{padding-left:18px;margin:4px 0}.contacts{margin:4px 0 10px;overflow-wrap:anywhere}.small{font-size:10pt}@media print{body{max-width:none;padding:0}}';
+        $html .= 'body{font-family:Arial,Helvetica,sans-serif;color:#171717;font-size:11pt;line-height:1.45;margin:0 auto;padding:28px;max-width:780px}h1{font-size:22pt;margin:0 0 2px}h2{font-size:12pt;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #444;padding-bottom:3px;margin:18px 0 8px}h3{font-size:11pt;margin:0 0 2px}p{margin:3px 0 7px}.meta,.subtle{color:#333}.entry{margin:0 0 9px}.date,.date-token{font-weight:normal;white-space:nowrap}.cv-list{padding-left:18px;margin:4px 0}.contacts{margin:4px 0 10px;overflow-wrap:anywhere}.small{font-size:10pt}@media print{body{max-width:none;padding:0}}';
         $html .= '</style></head><body>';
         $html .= '<h1>' . self::e($p['name']) . '</h1>';
         if ($p['title'] !== '') $html .= '<p class="subtle">' . self::e($p['title']) . '</p>';
@@ -24,7 +24,13 @@ final class CvRenderer
         if ($cv['enabled_sections']['summary'] && $cv['summary'] !== '') $html .= self::section('Summary', '<p>' . nl2br(self::e($cv['summary'])) . '</p>');
         if ($cv['enabled_sections']['skills'] && $cv['skills']) {
             $body = '';
-            foreach ($cv['skills'] as $row) $body .= '<p><strong>' . self::e($row['name']) . ($row['name'] && $row['details'] ? ': ' : '') . '</strong>' . self::e($row['details']) . '</p>';
+            foreach ($cv['skills'] as $row) {
+                $name = self::e($row['name']);
+                $details = self::e($row['details']);
+                if ($name !== '' && $details !== '') $body .= '<p><strong>' . $name . ':</strong> ' . $details . '</p>';
+                elseif ($name !== '') $body .= '<p>' . $name . '</p>';
+                elseif ($details !== '') $body .= '<p>' . $details . '</p>';
+            }
             $html .= self::section('Skills', $body);
         }
         if ($cv['enabled_sections']['experience'] && $cv['experience']) {
@@ -43,7 +49,12 @@ final class CvRenderer
             foreach ($cv['education'] as $row) {
                 $body .= '<div class="entry"><h3>' . self::e(implode(' | ', array_filter([$row['degree'], $row['institution']]))) . '</h3>';
                 $meta = implode(' | ', array_filter([$row['location'], $row['year']]));
-                if ($meta) $body .= '<p class="subtle">' . self::e($meta) . '</p>';
+                if ($meta) {
+                    $metaParts = [];
+                    if ($row['location'] !== '') $metaParts[] = self::e($row['location']);
+                    if ($row['year'] !== '') $metaParts[] = '<span class="date">' . self::e($row['year']) . '</span>';
+                    $body .= '<p class="subtle">' . implode(' | ', $metaParts) . '</p>';
+                }
                 if ($row['details']) $body .= '<p>' . nl2br(self::e($row['details'])) . '</p>';
                 $body .= '</div>';
             }
@@ -98,8 +109,18 @@ final class CvRenderer
     private static function bullets(array $items): string
     {
         $out = '<ul class="cv-list">';
-        foreach ($items as $item) $out .= '<li>' . self::e($item) . '</li>';
+        foreach ($items as $item) $out .= '<li>' . self::inlineText($item) . '</li>';
         return $out . '</ul>';
+    }
+
+    private static function inlineText(string $value): string
+    {
+        $escaped = self::e($value);
+        return preg_replace_callback(
+            '/(?<![0-9\/])(?:(?:0?[1-9]|[12][0-9]|3[01])\/(?:0?[1-9]|1[0-2])\/(?:19|20)[0-9]{2}|(?:0?[1-9]|1[0-2])\/(?:19|20)[0-9]{2})(?![0-9\/])/',
+            static fn($match) => '<span class="date-token">' . $match[0] . '</span>',
+            $escaped
+        ) ?? $escaped;
     }
 
     private static function namedEntries(array $rows, string $title, array $fields): string
