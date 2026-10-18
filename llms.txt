@@ -1,0 +1,29 @@
+# ATS Checker
+
+> PHP project being rewritten as an ATS-friendly CV generator, checker, converter, and multi-format export platform.
+
+## Current state
+
+The retained application currently provides a shared-password login and a legacy CV Maker with live preview, MySQL drafts, and PDF export via mPDF. The ATS checker, DOCX/PDF converter, DOCX/TXT/HTML exports, and AI provider integrations are planned, not yet implemented.
+
+## Project documents
+
+- [README](README.md): current capabilities, requirements, and local setup.
+- [ATS rewrite plan](ATS_Plan.md): product scope, assumptions, data compatibility, AI privacy, and implementation phases.
+- [Legacy CV Maker notes](documentation.md): historical implementation details and issues.
+- [Repository guidance](AGENTS.md): scope, data, and security conventions for contributors and coding agents.
+- [MIT License](LICENSE): project license.
+
+## Important code paths
+
+- `bootstrap.php`: environment loading, Composer autoload, and session startup.
+- `includes/auth.php` and `login.php`: shared-password authentication.
+- `includes/db.php`: MySQL connection and legacy `draft_cvs` table initialization.
+- `tools/cv-maker/index.php`: retained legacy CV editor, draft endpoints, and PDF renderer.
+- `ATS_Plan.md`: source of truth for the planned rewrite.
+
+## Data and privacy notes
+
+- Preserve existing `draft_cvs` records and the `toolbox` database default until backup and migration are planned.
+- Keep passwords and future AI provider keys in server-side environment configuration or a secret manager.
+- Planned AI actions are opt-in and must show what CV content is sent to a provider. AI suggestions require user review.
