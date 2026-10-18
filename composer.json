@@ -1,0 +1,16 @@
+{
+    "name": "ats-checker/cv-platform",
+    "description": "ATS-friendly CV generator, checker, converter, and export tools",
+    "require": {
+        "php": ">=7.2",
+        "erusev/parsedown": "^1.7",
+        "tecnickcom/tcpdf": "^6.4",
+        "mpdf/mpdf": "^8.3"
+    },
+    "require-dev": {
+        "squizlabs/php_codesniffer": "^3.7"
+    },
+    "autoload": {
+        "classmap": ["vendor/"]
+    }
+}

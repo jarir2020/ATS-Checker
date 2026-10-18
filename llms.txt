@@ -1,29 +1,44 @@
 # ATS Checker
 
-> PHP project being rewritten as an ATS-friendly CV generator, checker, converter, and multi-format export platform.
+> PHP app for ATS-friendly CV generation, checking, conversion, and export.
 
-## Current state
+## Current capabilities
 
-The retained application currently provides a shared-password login and a legacy CV Maker with live preview, MySQL drafts, and PDF export via mPDF. The ATS checker, DOCX/PDF converter, DOCX/TXT/HTML exports, and AI provider integrations are planned, not yet implemented.
+- No login screen or user accounts; all visitors share access to this instance's saved drafts.
+- Single-column CV generator with a common PHP renderer for preview and exports.
+- Saved drafts in the existing `draft_cvs` table, with compatibility for legacy JSON records.
+- Explainable text-based ATS checks with affected-area evidence and optional job-description term comparison.
+- Local import of DOCX and selectable-text PDF files. Image-only PDF OCR is not supported.
+- DOCX, PDF, plain text, and HTML exports.
+- Optional user-initiated Gemini or Agnes AI suggestions, including suggested import mapping. AI controls are hidden when the selected provider key is missing, and the server rejects AI requests in that state. Checker excerpts redact email, phone, and LinkedIn/GitHub URLs before sending; import excerpts can be edited; suggestions require user review.
 
 ## Project documents
 
-- [README](README.md): current capabilities, requirements, and local setup.
-- [ATS rewrite plan](ATS_Plan.md): product scope, assumptions, data compatibility, AI privacy, and implementation phases.
-- [Legacy CV Maker notes](documentation.md): historical implementation details and issues.
-- [Repository guidance](AGENTS.md): scope, data, and security conventions for contributors and coding agents.
+- [README](README.md): capabilities, requirements, local setup, AI data handling, and limitations.
+- [ATS rewrite plan](ATS_Plan.md): architecture, product requirements, migration notes, and implementation status.
+- [Legacy CV Maker notes](documentation.md): historical implementation details.
+- [Repository guidance](AGENTS.md): scope, data, and security conventions.
+- [Environment template](.env.example): safe local configuration template with blank optional provider key fields.
 - [MIT License](LICENSE): project license.
 
 ## Important code paths
 
-- `bootstrap.php`: environment loading, Composer autoload, and session startup.
-- `includes/auth.php` and `login.php`: shared-password authentication.
-- `includes/db.php`: MySQL connection and legacy `draft_cvs` table initialization.
-- `tools/cv-maker/index.php`: retained legacy CV editor, draft endpoints, and PDF renderer.
-- `ATS_Plan.md`: source of truth for the planned rewrite.
+- `index.php`: app routes and request actions; the app opens directly without login.
+- `bootstrap.php`: environment loading, autoloading, and session startup.
+- `includes/security.php`: CSRF, response, and request helpers.
+- `includes/db.php`: MySQL connection and existing `draft_cvs` table initialization.
+- `src/Cv/`: canonical CV model, legacy adapter, renderer, and draft repository.
+- `src/Ats/`: deterministic checker rules.
+- `src/Import/`: DOCX/PDF extraction and editable section mapping.
+- `src/Export/`: DOCX, PDF, plain-text, and HTML output.
+- `src/Ai/`: Gemini and Agnes AI provider adapters, provider selection, and validated user-reviewed suggestions.
+- `pages/`, `assets/`: app screens and browser interactions.
+- `legacy/cv-maker/index.php.legacy.txt`: archived pre-rewrite editor source.
 
-## Data and privacy notes
+## Data and privacy
 
-- Preserve existing `draft_cvs` records and the `toolbox` database default until backup and migration are planned.
-- Keep passwords and future AI provider keys in server-side environment configuration or a secret manager.
-- Planned AI actions are opt-in and must show what CV content is sent to a provider. AI suggestions require user review.
+- The local `cv_maker` database and `draft_cvs` table have been initialized. The previous `toolbox` database was left untouched; no legacy draft rows were copied.
+- Store credentials and provider keys in server-side environment configuration only.
+- AI requests are opt-in; set `AI_PROVIDER=gemini` or `AI_PROVIDER=agnes`. Gemini requests use `store: false`; Agnes requests do not include a storage option. No AI provider is required for the core tools.
+- Uploaded source files are processed locally and not retained by the application after the request.
+- The ATS score is a heuristic review score, not a hiring or ATS compatibility prediction.

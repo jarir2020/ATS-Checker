@@ -1,0 +1,23 @@
+(() => {
+  const base=window.ATS_BASE_URL, aiProvider=window.ATS_AI_PROVIDER||'configured AI provider', aiEnabled=window.ATS_AI_ENABLED===true, form=document.getElementById('checkForm'), results=document.getElementById('checkResults');
+  let lastText='';
+  const redact=(text)=>{const dates=[];text=String(text||'').replace(/\b(?:19|20)\d{2}\s*[-–]\s*(?:19|20)\d{2}\b/g,m=>{const key=`__ATS_DATE_${dates.length}__`;dates.push([key,m]);return key;}).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,'[email removed]').replace(/(?:\+?\d[\d().\s-]{6,}\d)/g,'[phone removed]').replace(/(?:https?:\/\/)?(?:www\.)?(?:linkedin|github)\.com\/\S+/gi,'[profile link removed]');dates.forEach(([key,value])=>{text=text.replace(key,value);});return text;};
+  function node(tag,className,text){const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=text;return el;}
+  function post(data){return fetch(base+'index.php',{method:'POST',body:data}).then(async r=>{const j=await r.json();if(!r.ok||!j.ok)throw new Error(j.error||'Request failed.');return j;});}
+  function payload(action){const data=new FormData();data.append('action',action);data.append('csrf_token',window.ATS_CSRF);data.append('job_description',document.getElementById('jobDescription').value);return data;}
+  function render(data){results.replaceChildren();const result=data.result;const score=node('div','score-card');const ring=node('div','score-ring',String(result.score));const copy=node('div','score-copy');copy.append(node('strong','',result.score_label));copy.append(node('p','',result.summary));score.append(ring,copy);results.append(score);
+    result.findings.forEach(f=>{const card=node('article','finding '+f.severity);card.append(node('h3','',f.title),node('p','',f.message));if(f.evidence)card.append(node('p','finding-evidence',`${f.section||'CV text'}: ${f.evidence}`));
+      if(aiEnabled&&f.severity!=='info'){const ask=node('button','explain-button',`Ask ${aiProvider} to explain this finding`);ask.type='button';ask.addEventListener('click',()=>explain(f));card.append(ask);}results.append(card);});
+    if(result.keywords.checked){const group=node('div','keyword-group');group.append(node('h3','','Job description terms'));
+      [['Found in CV',result.keywords.matched,false],['To review',result.keywords.missing,true]].forEach(([label,terms,missing])=>{if(!terms.length)return;group.append(node('p','muted',label));const tags=node('div','tag-list');terms.forEach(term=>tags.append(node('span','term-tag'+(missing?' missing':''),term)));group.append(tags);});results.append(group);}
+  }
+  form.addEventListener('submit',async event=>{event.preventDefault();results.replaceChildren(node('p','loading','Checking CV text…'));const file=document.getElementById('checkFile').files[0];const data=payload(file?'check_file':'check_text');if(file)data.append('cv_file',file);else data.append('cv_text',document.getElementById('cvText').value);
+    try{const response=await post(data);lastText=response.text||document.getElementById('cvText').value;const excerpt=document.getElementById('aiExcerpt');if(excerpt)excerpt.value=redact(lastText).slice(0,8000);render(response);}catch(error){results.replaceChildren(node('div','error-message',error.message));}
+  });
+  async function ai(task,extra){if(!document.getElementById('checkAiConsent').checked){document.getElementById('checkerAiResult').textContent=`Confirm the ${aiProvider} disclosure first.`;return;}
+    const data=payload('ai_suggest');data.append('ai_consent','yes');data.append('task',task);Object.entries(extra).forEach(([key,value])=>data.set(key,value));const box=document.getElementById('checkerAiResult');box.textContent=`Asking ${aiProvider}…`;
+    try{const response=await post(data);box.replaceChildren();const r=response.result;if(r.terms_to_review?.length){box.append(node('p','', 'Terms to review (confirm only when accurate): '+r.terms_to_review.join(', ')));}r.suggestions?.forEach(s=>{const card=node('div','suggestion-card');card.append(node('p','suggestion-text',s.rewrite),node('p','',s.reason));box.append(card);});if(!r.terms_to_review?.length&&!r.suggestions?.length)box.textContent='No suggestion was returned.';}catch(error){box.textContent=error.message;}
+  }
+  function explain(finding){ai('explain',{finding:finding.title+': '+finding.message,cv_excerpt:document.getElementById('aiExcerpt').value.slice(0,4000)});}
+  if(aiEnabled)document.getElementById('suggestTerms').addEventListener('click',()=>ai('terms',{cv_text:document.getElementById('aiExcerpt').value,job_description:document.getElementById('jobDescription').value}));
+})();

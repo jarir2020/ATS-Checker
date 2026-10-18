@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+keys.txt
+vendor/
+db_sql/
+*.log
+.well-known/

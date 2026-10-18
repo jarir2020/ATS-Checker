@@ -1,0 +1,1170 @@
+<?php
+// CV Maker | 2026-05-08
+require_once dirname(dirname(__DIR__)) . '/bootstrap.php';
+require_once BASE_PATH . '/includes/auth.php';
+require_once BASE_PATH . '/includes/layout.php';
+requireAuth();
+require_once BASE_PATH . '/includes/db.php';
+
+// ── Helpers ───────────────────────────────────────────────────────
+function secOn(array $d, string $k): bool { return ($d['sec_on'][$k] ?? '0') === '1'; }
+function av(array $d, string $k): array   { return array_values($d[$k] ?? []); }
+function e(string $s): string             { return htmlspecialchars($s, ENT_QUOTES); }
+function project_link_icon(string $url): string {
+    return '<a class="pr-link" href="'.e($url).'" target="_blank" rel="noopener noreferrer" aria-label="Open project link" title="Open project link"><span aria-hidden="true">↗</span></a>';
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TEMPLATE 1 — Classic
+// ─────────────────────────────────────────────────────────────────
+function css_classic(bool $lines=true): string {
+    $bdr = $lines ? '1px solid #aaa' : 'none';
+    return '
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#000; line-height:1.5; }
+.cv-name  { font-size:22px; font-weight:bold; margin-bottom:2px; }
+.cv-role  { font-style:italic; color:#555; font-size:12px; margin-bottom:4px; }
+.cv-hr    { border:none; border-top:'.$bdr.'; margin:4px 0; }
+.cv-ct    { font-size:10px; padding:3px 0; }
+.cv-ct a  { color:#1a0dab; text-decoration:none; }
+.sec      { margin-top:10px; }
+.st       { font-size:12px; font-weight:bold; border-bottom:'.$bdr.'; padding-bottom:2px; margin-bottom:6px; }
+.sk-lbl   { font-weight:bold; }
+.sk-row   { margin-bottom:1px; }
+.exp-co   { font-weight:bold; }
+.exp-e    { margin-bottom:8px; }
+.r-lbl    { margin-top:2px; }
+.r-itm    { margin-left:12px; color:#1155cc; }
+.edu-e    { margin-bottom:8px; }
+.edu-uni  { font-weight:bold; background:#f5f0d0; padding:1px 4px; display:block; }
+.edu-dsc  { color:#1155cc; }
+.pr-e     { margin-bottom:8px; }
+.pr-hd    { font-weight:bold; }
+.pr-tch   { font-weight:normal; font-style:italic; color:#444; }
+.pr-dsc   { color:#1155cc; }
+.pr-link { color:#1a0dab; font-size:10px; text-decoration:none; font-weight:bold; display:inline-flex; vertical-align:middle; margin-left:4px; }
+.pr-link span { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; margin-right:3px; border:1px solid currentColor; border-radius:50%; font-size:10px; }
+.ct-e     { margin-bottom:6px; }
+.ct-nm    { font-weight:bold; }
+.ct-id    { font-size:10px; color:#777; }
+.lg-nm    { font-weight:bold; }
+.lg-row   { margin-bottom:2px; }
+.ex-sec   { margin-top:10px; }
+'; }
+
+function build_classic(array $d): string {
+    $lines = ($d['show_lines'] ?? '1') !== '0';
+    $h = '<html><head><meta charset="UTF-8"><style>'.css_classic($lines).'</style></head><body>';
+    $h .= header_classic($d);
+    $h .= body_classic($d);
+    return $h.'</body></html>';
+}
+
+function header_classic(array $d): string {
+    $parts = contact_parts($d);
+    $h  = '<div class="cv-name">'.e($d['cv_name']??'').'</div>';
+    if (!empty($d['cv_role'])) $h .= '<div class="cv-role">'.e($d['cv_role']).'</div>';
+    $h .= '<hr class="cv-hr">';
+    if ($parts) $h .= '<div class="cv-ct">'.implode(' | ',$parts).'</div>';
+    $h .= '<hr class="cv-hr">';
+    return $h;
+}
+
+function body_classic(array $d): string {
+    $h = '';
+    if (secOn($d,'summary') && !empty($d['summary']))
+        $h .= '<div class="sec"><div class="st">Summary</div><p>'.e($d['summary']).'</p></div>';
+    $h .= skills_classic($d).exp_classic($d).edu_classic($d)
+         .projects_classic($d).certs_classic($d).langs_classic($d).extra_classic($d);
+    return $h;
+}
+
+function skills_classic(array $d): string {
+    if (!secOn($d,'skills')) return '';
+    $rows=''; foreach (av($d,'skill_label') as $i=>$l) {
+        $l=trim($l); $v=trim(av($d,'skill_value')[$i]??'');
+        if (!$l&&!$v) continue;
+        $rows.='<div class="sk-row"><span class="sk-lbl">'.e($l).':</span> '.e($v).'</div>';
+    }
+    return $rows ? '<div class="sec"><div class="st">Skills</div>'.$rows.'</div>' : '';
+}
+function exp_classic(array $d): string {
+    if (!secOn($d,'experience')) return '';
+    $bl=''; foreach (av($d,'exp_company') as $i=>$co) {
+        if (!trim($co)) continue;
+        $loc=trim(av($d,'exp_location')[$i]??''); $ttl=trim(av($d,'exp_title')[$i]??'');
+        $st=trim(av($d,'exp_start')[$i]??'');     $en=trim(av($d,'exp_end')[$i]??'');
+        $rsp=trim(av($d,'exp_resp')[$i]??'');
+        $bl.='<div class="exp-e"><div class="exp-co">'.e($co).($loc?' | '.e($loc):'').'</div>';
+        $bl.='<div>'.e($ttl).($st||$en?' | '.e($st).' – '.e($en):'').'</div>';
+        if ($rsp) { $bl.='<div class="r-lbl">Responsibilities:</div>';
+            foreach (array_filter(array_map('trim',explode("\n",$rsp))) as $x=>$ln)
+                $bl.='<div class="r-itm">'.($x+1).'. '.e($ln).'</div>'; }
+        $bl.='</div>';
+    }
+    return $bl ? '<div class="sec"><div class="st">Experience</div>'.$bl.'</div>' : '';
+}
+function edu_classic(array $d): string {
+    if (!secOn($d,'education')) return '';
+    $bl=''; foreach (av($d,'edu_uni') as $i=>$u) {
+        if (!trim($u)) continue;
+        $loc=trim(av($d,'edu_location')[$i]??''); $dg=trim(av($d,'edu_degree')[$i]??'');
+        $yr=trim(av($d,'edu_year')[$i]??'');      $dc=trim(av($d,'edu_desc')[$i]??'');
+        $bl.='<div class="edu-e"><div class="edu-uni">'.e($u).($loc?' | '.e($loc):'').'</div>';
+        $bl.='<div>'.e($dg).($yr?' | '.e($yr):'').'</div>';
+        if ($dc) $bl.='<div class="edu-dsc">'.e($dc).'</div>';
+        $bl.='</div>';
+    }
+    return $bl ? '<div class="sec"><div class="st">Education</div>'.$bl.'</div>' : '';
+}
+function projects_classic(array $d): string {
+    if (!secOn($d,'projects')) return '';
+    $bl=''; foreach (av($d,'proj_name') as $i=>$n) {
+        if (!trim($n)) continue;
+        $tc=trim(av($d,'proj_tech')[$i]??''); $dc=trim(av($d,'proj_desc')[$i]??''); $ur=trim(av($d,'proj_url')[$i]??'');
+        $bl.='<div class="pr-e"><div class="pr-hd">'.e($n).($tc?' <span class="pr-tch">— '.e($tc).'</span>':'').($ur?' '.project_link_icon($ur):'').'</div>';
+        if ($dc) $bl.='<div class="pr-dsc">'.e($dc).'</div>';
+        $bl.='</div>';
+    }
+    return $bl ? '<div class="sec"><div class="st">Projects</div>'.$bl.'</div>' : '';
+}
+function certs_classic(array $d): string {
+    if (!secOn($d,'certifications')) return '';
+    $bl=''; foreach (av($d,'cert_name') as $i=>$n) {
+        if (!trim($n)) continue;
+        $is=trim(av($d,'cert_issuer')[$i]??''); $dt=trim(av($d,'cert_date')[$i]??''); $id=trim(av($d,'cert_id')[$i]??'');
+        $bl.='<div class="ct-e"><div class="ct-nm">'.e($n).($is?' — '.e($is):'').($dt?' | '.e($dt):'').'</div>';
+        if ($id) $bl.='<div class="ct-id">Credential ID: '.e($id).'</div>';
+        $bl.='</div>';
+    }
+    return $bl ? '<div class="sec"><div class="st">Certifications</div>'.$bl.'</div>' : '';
+}
+function langs_classic(array $d): string {
+    if (!secOn($d,'languages')) return '';
+    $rows=''; foreach (av($d,'lang_name') as $i=>$n) {
+        if (!trim($n)) continue;
+        $lv = trim(av($d,'lang_level')[$i]??'');
+        $rows.='<div class="lg-row"><span class="lg-nm">'.e($n).'</span>'.($lv ? ' — '.e($lv) : '').'</div>';
+    }
+    return $rows ? '<div class="sec"><div class="st">Languages</div>'.$rows.'</div>' : '';
+}
+function extra_classic(array $d): string {
+    if (!secOn($d,'extra')) return '';
+    $h=''; foreach (av($d,'extra_title') as $i=>$t) {
+        if (!trim($t)) continue;
+        $h.='<div class="ex-sec"><div class="st">'.e($t).'</div><div>'.e(av($d,'extra_content')[$i]??'').'</div></div>';
+    }
+    return $h;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TEMPLATE 2 — Modern (Dark Sidebar)
+// ─────────────────────────────────────────────────────────────────
+function css_modern(bool $lines=true): string {
+    $sbdr = $lines ? '1px solid #3d5166' : 'none';
+    $mbdr = $lines ? '3px solid #2c3e50' : 'none';
+    return '
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:Arial,Helvetica,sans-serif; font-size:11px; line-height:1.5; }
+table.cv-tbl { width:100%; border-collapse:collapse; }
+.sb  { background:#2c3e50; color:#ecf0f1; padding:20px 16px; vertical-align:top; width:34%; }
+.mn  { background:#fff; color:#000; padding:20px; vertical-align:top; width:66%; }
+.sb-name  { font-size:18px; font-weight:bold; margin-bottom:2px; }
+.sb-role  { font-style:italic; color:#95a5a6; font-size:11px; margin-bottom:12px; }
+.sb-st    { font-size:10px; font-weight:bold; text-transform:uppercase; letter-spacing:1px; color:#7f8c8d; border-bottom:'.$sbdr.'; padding-bottom:3px; margin:12px 0 6px; }
+.sb-ct    { font-size:10px; margin-bottom:3px; color:#bdc3c7; }
+.sb-ct a  { color:#bdc3c7; }
+.sb-sk    { margin-bottom:2px; font-size:10px; }
+.sb-lbl   { font-weight:bold; color:#ecf0f1; }
+.sb-lg    { margin-bottom:2px; font-size:10px; }
+.sb-lg-nm { font-weight:bold; }
+.mn-st    { font-size:12px; font-weight:bold; color:#2c3e50; border-left:'.$mbdr.'; padding-left:7px; margin:12px 0 6px; }
+.mn-st:first-child { margin-top:0; }
+.exp-co   { font-weight:bold; }
+.exp-e    { margin-bottom:8px; }
+.r-lbl    { margin-top:2px; }
+.r-itm    { margin-left:12px; color:#1155cc; }
+.edu-e    { margin-bottom:8px; }
+.edu-uni  { font-weight:bold; background:#eaf0f7; padding:1px 4px; display:block; }
+.edu-dsc  { color:#1155cc; }
+.pr-e     { margin-bottom:7px; }
+.pr-hd    { font-weight:bold; }
+.pr-tch   { font-weight:normal; font-style:italic; color:#555; }
+.pr-dsc   { color:#1155cc; font-size:10px; }
+.pr-link { color:#1a0dab; font-size:10px; text-decoration:none; font-weight:bold; display:inline-flex; vertical-align:middle; margin-left:4px; }
+.pr-link span { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border:1px solid currentColor; border-radius:50%; font-size:10px; }
+.ct-e     { margin-bottom:5px; }
+.ct-nm    { font-weight:bold; }
+.ct-id    { font-size:10px; color:#777; }
+.ex-sec   { margin-top:10px; }
+'; }
+
+function build_modern(array $d): string {
+    $lines = ($d['show_lines'] ?? '1') !== '0';
+    $h = '<html><head><meta charset="UTF-8"><style>'.css_modern($lines).'</style></head><body>';
+    $h .= '<table class="cv-tbl"><tr>';
+    // Sidebar
+    $h .= '<td class="sb">';
+    $h .= '<div class="sb-name">'.e($d['cv_name']??'').'</div>';
+    if (!empty($d['cv_role'])) $h .= '<div class="sb-role">'.e($d['cv_role']).'</div>';
+    // Contact
+    $cp = contact_parts($d, true);
+    if ($cp) { $h.='<div class="sb-st">Contact</div>'; foreach ($cp as $p) $h.='<div class="sb-ct">'.$p.'</div>'; }
+    // Skills
+    if (secOn($d,'skills')) {
+        $rows=''; foreach (av($d,'skill_label') as $i=>$l) {
+            $l=trim($l); $v=trim(av($d,'skill_value')[$i]??'');
+            if (!$l&&!$v) continue;
+            $rows.='<div class="sb-sk"><span class="sb-lbl">'.e($l).'</span><br>'.e($v).'</div>';
+        }
+        if ($rows) $h.='<div class="sb-st">Skills</div>'.$rows;
+    }
+    // Languages
+    if (secOn($d,'languages')) {
+        $rows=''; foreach (av($d,'lang_name') as $i=>$n) {
+            if (!trim($n)) continue;
+            $lv=trim(av($d,'lang_level')[$i]??'');
+            $rows.='<div class="sb-lg"><span class="sb-lg-nm">'.e($n).'</span>'.($lv?' — '.e($lv):'').'</div>';
+        }
+        if ($rows) $h.='<div class="sb-st">Languages</div>'.$rows;
+    }
+    $h .= '</td>';
+    // Main
+    $h .= '<td class="mn">';
+    if (secOn($d,'summary')&&!empty($d['summary']))
+        $h.='<div class="mn-st">Summary</div><p>'.e($d['summary']).'</p>';
+    // Experience (re-use classic builders with modern class st→mn-st)
+    $h.=str_replace('"st"','"mn-st"', exp_classic($d).edu_classic($d).projects_classic($d).certs_classic($d).extra_classic($d));
+    $h .= '</td></tr></table>';
+    return $h.'</body></html>';
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TEMPLATE 3 — Professional (Colored Header)
+// ─────────────────────────────────────────────────────────────────
+function css_professional(bool $lines=true): string {
+    $bdr = $lines ? '2px solid #1e3a5f' : 'none';
+    return '
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:Arial,Helvetica,sans-serif; font-size:11px; color:#000; line-height:1.5; }
+.hdr  { background:#1e3a5f; color:#fff; padding:18px 20px; margin-bottom:12px; }
+.h-nm { font-size:24px; font-weight:bold; margin-bottom:2px; }
+.h-rl { font-style:italic; color:#a8c8e8; font-size:12px; margin-bottom:6px; }
+.h-ct { font-size:10px; color:#cde; }
+.h-ct a { color:#cde; text-decoration:none; }
+.sec  { margin-top:10px; }
+.st   { font-size:12px; font-weight:bold; color:#1e3a5f; border-bottom:'.$bdr.'; padding-bottom:2px; margin-bottom:6px; }
+.sk-lbl { font-weight:bold; }
+.sk-row { margin-bottom:1px; }
+.exp-co { font-weight:bold; }
+.exp-e  { margin-bottom:8px; }
+.r-lbl  { margin-top:2px; }
+.r-itm  { margin-left:12px; color:#1155cc; }
+.edu-e  { margin-bottom:8px; }
+.edu-uni{ font-weight:bold; background:#e8f0fa; padding:1px 4px; display:block; border-left:3px solid #1e3a5f; padding-left:6px; }
+.edu-dsc{ color:#1155cc; }
+.pr-e   { margin-bottom:8px; }
+.pr-hd  { font-weight:bold; }
+.pr-tch { font-weight:normal; font-style:italic; color:#444; }
+.pr-dsc { color:#1155cc; }
+.pr-link{ color:#1a0dab; font-size:10px; text-decoration:none; font-weight:bold; display:inline-flex; vertical-align:middle; margin-left:4px; }
+.pr-link span { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border:1px solid currentColor; border-radius:50%; font-size:10px; }
+.ct-e   { margin-bottom:6px; }
+.ct-nm  { font-weight:bold; }
+.ct-id  { font-size:10px; color:#777; }
+.lg-nm  { font-weight:bold; }
+.lg-row { margin-bottom:2px; }
+.ex-sec { margin-top:10px; }
+'; }
+
+function build_professional(array $d): string {
+    $lines = ($d['show_lines'] ?? '1') !== '0';
+    $parts = contact_parts($d);
+    $h  = '<html><head><meta charset="UTF-8"><style>'.css_professional($lines).'</style></head><body>';
+    $h .= '<div class="hdr"><div class="h-nm">'.e($d['cv_name']??'').'</div>';
+    if (!empty($d['cv_role'])) $h.='<div class="h-rl">'.e($d['cv_role']).'</div>';
+    if ($parts) $h.='<div class="h-ct">'.implode(' &nbsp;|&nbsp; ',$parts).'</div>';
+    $h .= '</div>';
+    if (secOn($d,'summary')&&!empty($d['summary']))
+        $h.='<div class="sec"><div class="st">Summary</div><p>'.e($d['summary']).'</p></div>';
+    $h.=skills_classic($d).exp_classic($d).edu_classic($d)
+       .projects_classic($d).certs_classic($d).langs_classic($d).extra_classic($d);
+    return $h.'</body></html>';
+}
+
+// ─────────────────────────────────────────────────────────────────
+// TEMPLATE 4 — Minimal (Clean Serif)
+// ─────────────────────────────────────────────────────────────────
+function css_minimal(bool $lines=true): string {
+    $bdr   = $lines ? '1px dotted #aaa' : 'none';
+    $hrbdr = $lines ? '1px solid #ccc'  : 'none';
+    return '
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:Georgia,"Times New Roman",serif; font-size:11px; color:#222; line-height:1.7; }
+.cv-name { font-size:26px; font-weight:normal; letter-spacing:1px; margin-bottom:2px; }
+.cv-role { font-style:italic; color:#888; font-size:12px; margin-bottom:5px; }
+.cv-hr   { border:none; border-top:'.$hrbdr.'; margin:5px 0; }
+.cv-ct   { font-size:10px; padding:3px 0; color:#555; }
+.cv-ct a { color:#333; text-decoration:none; }
+.sec     { margin-top:14px; }
+.st      { font-size:10px; font-weight:bold; text-transform:uppercase; letter-spacing:2px; border-bottom:'.$bdr.'; padding-bottom:3px; margin-bottom:7px; color:#555; }
+.sk-lbl  { font-style:italic; }
+.sk-row  { margin-bottom:1px; }
+.exp-co  { font-weight:bold; }
+.exp-e   { margin-bottom:9px; }
+.r-lbl   { margin-top:2px; font-style:italic; color:#555; }
+.r-itm   { margin-left:12px; color:#444; }
+.edu-e   { margin-bottom:9px; }
+.edu-uni { font-weight:bold; border-bottom:1px solid #ddd; padding-bottom:1px; display:block; }
+.edu-dsc { color:#555; font-style:italic; }
+.pr-e    { margin-bottom:8px; }
+.pr-hd   { font-weight:bold; }
+.pr-tch  { font-weight:normal; font-style:italic; color:#666; }
+.pr-dsc  { color:#555; font-style:italic; }
+.pr-link{ color:#333; font-size:10px; text-decoration:none; font-weight:bold; display:inline-flex; vertical-align:middle; margin-left:4px; }
+.pr-link span { display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border:1px solid currentColor; border-radius:50%; font-size:10px; }
+.ct-e    { margin-bottom:6px; }
+.ct-nm   { font-weight:bold; }
+.ct-id   { font-size:10px; color:#888; }
+.lg-nm   { font-style:italic; }
+.lg-row  { margin-bottom:2px; }
+.ex-sec  { margin-top:14px; }
+'; }
+
+function build_minimal(array $d): string {
+    $lines = ($d['show_lines'] ?? '1') !== '0';
+    $parts = contact_parts($d);
+    $h  = '<html><head><meta charset="UTF-8"><style>'.css_minimal($lines).'</style></head><body>';
+    $h .= '<div class="cv-name">'.e($d['cv_name']??'').'</div>';
+    if (!empty($d['cv_role'])) $h.='<div class="cv-role">'.e($d['cv_role']).'</div>';
+    $h .= '<hr class="cv-hr">';
+    if ($parts) $h.='<div class="cv-ct">'.implode(' &nbsp;·&nbsp; ',$parts).'</div>';
+    $h .= '<hr class="cv-hr">';
+    if (secOn($d,'summary')&&!empty($d['summary']))
+        $h.='<div class="sec"><div class="st">Summary</div><p>'.e($d['summary']).'</p></div>';
+    $h.=skills_classic($d).exp_classic($d).edu_classic($d)
+       .projects_classic($d).certs_classic($d).langs_classic($d).extra_classic($d);
+    return $h.'</body></html>';
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Shared helpers
+// ─────────────────────────────────────────────────────────────────
+function contact_parts(array $d, bool $separate=false): array {
+    $p=[];
+    if (!empty($d['phone']))    $p[] = e($d['phone']);
+    if (!empty($d['email']))    $p[] = '<a href="mailto:'.e($d['email']).'">'.e($d['email']).'</a>';
+    if (!empty($d['location'])) $p[] = e($d['location']);
+    if (!empty($d['linkedin'])) $p[] = '<a href="'.e($d['linkedin']).'">Linkedin</a>';
+    if (!empty($d['github']))   $p[] = '<a href="'.e($d['github']).'">Github</a>';
+    return $p;
+}
+
+function buildCvHtml(array $d): string {
+    switch ($d['cv_template'] ?? 'classic') {
+        case 'modern':       return build_modern($d);
+        case 'professional': return build_professional($d);
+        case 'minimal':      return build_minimal($d);
+        case 'executive':    return str_replace(['#1e3a5f','#a8c8e8','#cde'], ['#1f2937','#cbd5e1','#e5e7eb'], build_professional($d));
+        default:             return build_classic($d);
+    }
+}
+
+// ── Draft AJAX ────────────────────────────────────────────────────
+if (isset($_GET['action'])) {
+    header('Content-Type: application/json');
+    $db = getDb();
+    if ($_GET['action'] === 'list_drafts') {
+        echo json_encode($db->query("SELECT id, draft_name, updated_at FROM draft_cvs ORDER BY updated_at DESC")->fetchAll());
+    } elseif ($_GET['action'] === 'get_draft' && isset($_GET['id'])) {
+        $st = $db->prepare("SELECT cv_data FROM draft_cvs WHERE id=?");
+        $st->execute([(int)$_GET['id']]);
+        $row = $st->fetch();
+        echo $row ? $row['cv_data'] : 'null';
+    }
+    exit;
+}
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $act = $_POST['action'] ?? '';
+    if ($act === 'save_draft') {
+        header('Content-Type: application/json');
+        $name = trim($_POST['draft_name'] ?? '');
+        $data = $_POST['cv_data'] ?? '';
+        $id   = (int)($_POST['draft_id'] ?? 0);
+        if ($name && $data) {
+            $db = getDb();
+            if ($id) {
+                $db->prepare("UPDATE draft_cvs SET draft_name=?,cv_data=?,updated_at=NOW() WHERE id=?")->execute([$name,$data,$id]);
+            } else {
+                $db->prepare("INSERT INTO draft_cvs (draft_name,cv_data) VALUES (?,?)")->execute([$name,$data]);
+                $id = (int)$db->lastInsertId();
+            }
+            echo json_encode(['ok'=>true,'id'=>$id]);
+        } else {
+            echo json_encode(['ok'=>false,'msg'=>'Missing data']);
+        }
+        exit;
+    }
+    if ($act === 'delete_draft') {
+        header('Content-Type: application/json');
+        $id = (int)($_POST['id'] ?? 0);
+        if ($id) getDb()->prepare("DELETE FROM draft_cvs WHERE id=?")->execute([$id]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+}
+
+// ── PDF download ──────────────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'download') {
+    $mpdf = new \Mpdf\Mpdf([
+        'margin_left'=>12,'margin_right'=>12,'margin_top'=>12,'margin_bottom'=>12,'format'=>'A4',
+    ]);
+    $mpdf->WriteHTML(buildCvHtml($_POST));
+    $mpdf->Output('cv.pdf', \Mpdf\Output\Destination::DOWNLOAD);
+    exit;
+}
+
+pageHeader('CV Maker');
+?>
+<style>
+.cv-wrap {
+    display:grid; grid-template-columns:430px 1fr;
+    gap:24px; width:100%; max-width:1200px; align-items:start;
+}
+.cv-form-card {
+    background:#fff; border-radius:10px;
+    box-shadow:0 10px 40px rgba(0,0,0,0.15); padding:24px;
+    max-height:calc(100vh - 100px); overflow-y:auto;
+}
+.cv-form-card h2  { font-size:18px; margin-bottom:4px; }
+.cv-form-card > p { font-size:13px; color:#666; margin-bottom:16px; }
+.cv-form-card .form-group { margin-bottom:10px; }
+.cv-form-card label { font-size:12px; margin-bottom:3px; }
+.cv-form-card input,
+.cv-form-card textarea,
+.cv-form-card select { padding:7px 9px; font-size:12px; }
+.cv-form-card textarea { min-height:70px; }
+
+/* Template picker */
+.tmpl-picker { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:20px; }
+.tmpl-card {
+    border:2px solid #eee; border-radius:8px; padding:8px;
+    cursor:pointer; text-align:center; transition:border-color .15s;
+}
+.tmpl-card:hover   { border-color:#667eea; }
+.tmpl-card.active  { border-color:#667eea; background:#f5f6ff; }
+.tmpl-card span    { font-size:11px; font-weight:600; color:#555; display:block; margin-top:5px; }
+.tmpl-card.active span { color:#667eea; }
+.tmpl-card:focus-visible { outline:3px solid rgba(102,126,234,.35); outline-offset:2px; }
+.tmpl-thumb { height:52px; border:1px solid #eee; border-radius:4px; overflow:hidden; position:relative; }
+
+/* Section headers */
+.sec-head {
+    font-size:11px; font-weight:700; color:#666;
+    text-transform:uppercase; letter-spacing:.6px;
+    margin:16px 0 0; border-bottom:1px solid #eee; padding-bottom:5px;
+    display:flex; justify-content:space-between; align-items:center;
+}
+.sec-head-left { display:flex; align-items:center; gap:8px; }
+.sec-body { margin-top:8px; }
+.sec-body.hidden { display:none; }
+.tog { display:inline-flex; align-items:center; cursor:pointer; }
+.tog input { display:none; }
+.tog-track {
+    width:30px; height:17px; background:#ccc; border-radius:9px;
+    position:relative; transition:background .2s; flex-shrink:0;
+}
+.tog-track::after {
+    content:''; position:absolute; width:13px; height:13px;
+    background:#fff; border-radius:50%; top:2px; left:2px;
+    transition:transform .2s; box-shadow:0 1px 3px rgba(0,0,0,.2);
+}
+.tog input:checked + .tog-track { background:#667eea; }
+.tog input:checked + .tog-track::after { transform:translateX(13px); }
+.btn-add-small {
+    font-size:11px; padding:3px 10px; border:1px solid #667eea;
+    color:#667eea; background:none; border-radius:5px; cursor:pointer; font-weight:600;
+}
+.btn-add-small:hover { background:#667eea; color:#fff; }
+.dyn-entry {
+    border:1px solid #eee; border-radius:8px;
+    padding:10px; margin-bottom:10px; position:relative; background:#fafafa;
+}
+.btn-remove {
+    position:absolute; top:8px; right:8px;
+    background:none; border:none; color:#ccc; font-size:16px; cursor:pointer; line-height:1;
+}
+.btn-remove:hover { color:#e74c3c; }
+.btn-move {
+    position:absolute; top:6px;
+    background:none; border:none; color:#ccc; font-size:10px; cursor:pointer; line-height:1; padding:2px 3px;
+}
+.btn-move:hover { color:#667eea; }
+.btn-move:first-of-type { right:30px; }
+.btn-move:nth-of-type(2) { right:52px; }
+.input-row  { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+
+/* Preview */
+.cv-preview-wrap {
+    background:#fff; border-radius:10px;
+    box-shadow:0 10px 40px rgba(0,0,0,0.15); padding:20px;
+    position:sticky; top:20px;
+}
+.cv-preview-wrap h3 { font-size:13px; color:#999; text-transform:uppercase; letter-spacing:.5px; margin-bottom:12px; }
+#cvPreview {
+    border:1px solid #ddd; min-height:300px; max-height:700px; overflow-y:auto;
+}
+/* Preview inner — injected per template */
+
+@media (max-width:900px) { .cv-wrap { grid-template-columns:1fr; } .cv-preview-wrap { position:static; } }
+@media (max-width:520px) { .tmpl-picker { grid-template-columns:repeat(3,1fr); } }
+</style>
+
+<div class="cv-wrap">
+<div class="cv-form-card">
+    <h2>📋 CV Maker</h2>
+    <p>Choose template, toggle sections, fill details.</p>
+
+    <!-- Template picker -->
+    <div class="tmpl-picker" id="tmplPicker">
+        <div class="tmpl-card active" data-t="classic" onclick="setTemplate('classic')">
+            <div class="tmpl-thumb" style="background:#fff;padding:4px;">
+                <div style="height:8px;background:#ddd;margin-bottom:3px;border-radius:1px;"></div>
+                <div style="height:1px;background:#aaa;margin-bottom:3px;"></div>
+                <div style="height:3px;background:#eee;margin-bottom:2px;width:90%;border-radius:1px;"></div>
+                <div style="height:3px;background:#eee;margin-bottom:2px;width:75%;border-radius:1px;"></div>
+                <div style="height:3px;background:#eee;width:80%;border-radius:1px;"></div>
+            </div>
+            <span>Classic</span>
+        </div>
+        <div class="tmpl-card" data-t="modern" onclick="setTemplate('modern')">
+            <div class="tmpl-thumb" style="display:flex;gap:0;">
+                <div style="width:36%;background:#2c3e50;padding:4px;">
+                    <div style="height:5px;background:rgba(255,255,255,.5);margin-bottom:2px;border-radius:1px;"></div>
+                    <div style="height:3px;background:rgba(255,255,255,.3);margin-bottom:2px;border-radius:1px;"></div>
+                    <div style="height:3px;background:rgba(255,255,255,.25);border-radius:1px;"></div>
+                </div>
+                <div style="flex:1;background:#fff;padding:4px;">
+                    <div style="height:3px;background:#eee;margin-bottom:2px;border-radius:1px;"></div>
+                    <div style="height:3px;background:#eee;margin-bottom:2px;width:85%;border-radius:1px;"></div>
+                    <div style="height:3px;background:#eee;width:70%;border-radius:1px;"></div>
+                </div>
+            </div>
+            <span>Modern</span>
+        </div>
+        <div class="tmpl-card" data-t="professional" onclick="setTemplate('professional')">
+            <div class="tmpl-thumb" style="background:#fff;">
+                <div style="height:18px;background:#1e3a5f;padding:4px;">
+                    <div style="height:5px;background:rgba(255,255,255,.7);border-radius:1px;"></div>
+                    <div style="height:3px;background:rgba(255,255,255,.4);margin-top:2px;width:70%;border-radius:1px;"></div>
+                </div>
+                <div style="padding:4px;">
+                    <div style="height:3px;background:#eee;margin-bottom:2px;border-radius:1px;"></div>
+                    <div style="height:3px;background:#eee;width:80%;border-radius:1px;"></div>
+                </div>
+            </div>
+            <span>Professional</span>
+        </div>
+        <div class="tmpl-card" data-t="minimal" onclick="setTemplate('minimal')">
+            <div class="tmpl-thumb" style="background:#fff;padding:4px;">
+                <div style="height:9px;background:#e8e8e8;margin-bottom:2px;border-radius:1px;"></div>
+                <div style="height:1px;background:#ccc;margin-bottom:4px;"></div>
+                <div style="height:2px;background:#e8e8e8;margin-bottom:2px;width:88%;border-radius:1px;"></div>
+                <div style="height:2px;background:#e8e8e8;margin-bottom:2px;width:70%;border-radius:1px;"></div>
+                <div style="height:2px;background:#e8e8e8;width:78%;border-radius:1px;"></div>
+            </div>
+            <span>Minimal</span>
+        </div>
+        <div class="tmpl-card" data-t="executive" onclick="setTemplate('executive')">
+            <div class="tmpl-thumb" style="background:#fff;">
+                <div style="height:18px;background:#1f2937;padding:4px;"><div style="height:5px;background:rgba(255,255,255,.75);border-radius:1px;"></div><div style="height:3px;background:rgba(255,255,255,.35);margin-top:2px;width:72%;border-radius:1px;"></div></div>
+                <div style="padding:4px;"><div style="height:3px;background:#d1d5db;margin-bottom:3px;width:92%;border-radius:1px;"></div><div style="height:3px;background:#e5e7eb;width:76%;border-radius:1px;"></div></div>
+            </div>
+            <span>Executive</span>
+        </div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:8px 12px;background:#f9f9f9;border-radius:6px;font-size:12px;color:#555;">
+        <label class="tog" style="margin:0">
+            <input type="checkbox" id="show_lines_chk" checked onchange="toggleLines(this.checked)">
+            <span class="tog-track"></span>
+        </label>
+        <span style="font-weight:600">Section dividers</span>
+    </div>
+
+    <form id="cvForm" method="POST">
+    <input type="hidden" name="action" value="download">
+    <input type="hidden" id="cv_template" name="cv_template" value="classic">
+    <input type="hidden" id="show_lines" name="show_lines" value="1">
+
+    <!-- Always-on: Personal -->
+    <div class="sec-head"><div class="sec-head-left">Personal</div></div>
+    <div class="sec-body">
+        <div class="form-group"><label>Full Name</label>
+            <input type="text" name="cv_name" placeholder="Jarir Ahmed" oninput="up()"></div>
+        <div class="form-group"><label>Professional Title</label>
+            <input type="text" name="cv_role" placeholder="Full Stack Developer" oninput="up()"></div>
+    </div>
+
+    <!-- Always-on: Contact -->
+    <div class="sec-head"><div class="sec-head-left">Contact</div></div>
+    <div class="sec-body">
+        <div class="input-row">
+            <div class="form-group"><label>Phone</label>
+                <input type="text" name="phone" placeholder="01615406040" oninput="up()"></div>
+            <div class="form-group"><label>Email</label>
+                <input type="email" name="email" placeholder="you@email.com" oninput="up()"></div>
+        </div>
+        <div class="input-row">
+            <div class="form-group"><label>Location</label>
+                <input type="text" name="location" placeholder="Rajshahi" oninput="up()"></div>
+            <div class="form-group"><label>LinkedIn URL</label>
+                <input type="text" name="linkedin" placeholder="https://linkedin.com/in/..." oninput="up()"></div>
+        </div>
+        <div class="form-group"><label>GitHub URL</label>
+            <input type="text" name="github" placeholder="https://github.com/..." oninput="up()"></div>
+    </div>
+
+    <?php
+    $sections=[
+        ['summary',        'Summary',        true,  false],
+        ['skills',         'Skills',         true,  true ],
+        ['experience',     'Experience',     true,  true ],
+        ['education',      'Education',      true,  true ],
+        ['projects',       'Projects',       false, true ],
+        ['certifications', 'Certifications', false, true ],
+        ['languages',      'Languages',      false, true ],
+        ['extra',          'Extra Sections', false, true ],
+    ];
+    foreach ($sections as [$key,$label,$on,$hasAdd]):
+    ?>
+    <input type="hidden" id="sec_on_<?= $key ?>" name="sec_on[<?= $key ?>]" value="<?= $on?'1':'0' ?>">
+    <div class="sec-head">
+        <div class="sec-head-left">
+            <label class="tog"><input type="checkbox" id="secchk_<?= $key ?>" <?= $on?'checked':'' ?>
+                onchange="toggleSec('<?= $key ?>',this.checked)"><span class="tog-track"></span></label>
+            <?= $label ?>
+        </div>
+        <?php if ($hasAdd): ?>
+        <button type="button" class="btn-add-small" onclick="addRow_<?= $key ?>()">+ Add</button>
+        <?php endif; ?>
+    </div>
+    <div class="sec-body <?= $on?'':'hidden' ?>" id="secbody_<?= $key ?>">
+        <?php if ($key==='summary'): ?>
+        <div class="form-group">
+            <textarea name="summary" placeholder="Write a short professional summary..." oninput="up()"></textarea>
+        </div>
+        <?php else: ?>
+        <div id="container_<?= $key ?>"></div>
+        <?php endif; ?>
+    </div>
+    <?php endforeach; ?>
+    </form>
+</div>
+
+<!-- Preview -->
+<div class="cv-preview-wrap">
+    <h3>Live Preview</h3>
+    <div id="cvPreview"><p style="padding:20px;color:#aaa;font-size:12px;font-family:sans-serif;">Start filling the form...</p></div>
+    <div style="margin-top:14px;display:flex;gap:8px;">
+        <button class="btn btn-primary" style="flex:2" onclick="document.getElementById('cvForm').submit()">⬇ Download PDF</button>
+        <button class="btn btn-secondary" style="flex:1" onclick="openSaveDraft()">💾 Save</button>
+    </div>
+    <div id="draftBadge" style="display:none;margin-top:6px;font-size:11px;color:#667eea;text-align:center;padding:4px 8px;background:#f5f6ff;border-radius:4px;"></div>
+
+    <div style="margin-top:14px;border-top:1px solid #eee;padding-top:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-size:11px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.5px;">Saved Drafts</span>
+            <button onclick="newDraft()" style="font-size:11px;color:#667eea;background:none;border:none;cursor:pointer;padding:2px 0;">+ New</button>
+        </div>
+        <div id="draftList"><div style="color:#bbb;font-size:11px;padding:4px 0">Loading...</div></div>
+    </div>
+</div>
+</div>
+
+<!-- Save Draft Modal -->
+<div id="draftModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:999;align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:10px;padding:24px 28px;width:320px;box-shadow:0 20px 60px rgba(0,0,0,0.25);">
+        <h3 style="font-size:15px;margin-bottom:14px;color:#333;">💾 Save Draft</h3>
+        <input type="text" id="draftModalName" placeholder="e.g. My Main CV"
+            onkeydown="if(event.key==='Enter')saveDraft()"
+            style="width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;margin-bottom:14px;font-family:inherit;outline:none;">
+        <div style="display:flex;gap:8px;">
+            <button onclick="saveDraft()" class="btn btn-primary" style="flex:1">Save</button>
+            <button onclick="closeDraftModal()" class="btn btn-secondary">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── Utilities ─────────────────────────────────────────────────────
+function esc(s){const d=document.createElement('div');d.appendChild(document.createTextNode(s||''));return d.innerHTML;}
+function gv(n){const e=document.querySelector(`[name="${n}"]`);return e?e.value.trim():'';}
+function gva(n){return[...document.querySelectorAll(`[name="${n}"]`)].map(e=>e.value.trim());}
+function secOn(k){return document.getElementById('sec_on_'+k)?.value==='1';}
+
+let currentTemplate = 'classic';
+
+function setTemplate(t) {
+    currentTemplate = t;
+    document.getElementById('cv_template').value = t;
+    document.querySelectorAll('.tmpl-card').forEach(c=>c.classList.toggle('active', c.dataset.t===t));
+    up();
+}
+
+function toggleLines(on) {
+    document.getElementById('show_lines').value = on ? '1' : '0';
+    up();
+}
+
+function toggleSec(key, on) {
+    document.getElementById('sec_on_'+key).value = on?'1':'0';
+    document.getElementById('secbody_'+key).classList.toggle('hidden',!on);
+    up();
+}
+
+// ── Row builders ──────────────────────────────────────────────────
+function mkEntry(id, html) {
+    const c=document.getElementById(id), d=document.createElement('div');
+    d.className='dyn-entry';
+    d.innerHTML=`<button type="button" class="btn-move" title="Move up" onclick="moveEntry(this,-1)">▲</button><button type="button" class="btn-move" title="Move down" onclick="moveEntry(this,1)">▼</button><button type="button" class="btn-remove" onclick="this.parentElement.remove();up()">×</button>${html}`;
+    c.appendChild(d);
+}
+function moveEntry(btn, dir) {
+    const e = btn.parentElement, sib = dir < 0 ? e.previousElementSibling : e.nextElementSibling;
+    if (!sib) return;
+    e.parentElement.insertBefore(e, dir < 0 ? sib : sib.nextElementSibling);
+    up();
+}
+function addRow_skills(){mkEntry('container_skills',`
+    <div class="input-row">
+        <div class="form-group"><label>Label</label><input type="text" name="skill_label[]" placeholder="Back-end Technologies" oninput="up()"></div>
+        <div class="form-group"><label>Value</label><input type="text" name="skill_value[]" placeholder="PHP, Laravel, ..." oninput="up()"></div>
+    </div>`);}
+function addRow_experience(){mkEntry('container_experience',`
+    <div class="input-row">
+        <div class="form-group"><label>Company</label><input type="text" name="exp_company[]" placeholder="AccordHRM" oninput="up()"></div>
+        <div class="form-group"><label>Location</label><input type="text" name="exp_location[]" placeholder="Dhaka" oninput="up()"></div>
+    </div>
+    <div class="form-group"><label>Job Title</label><input type="text" name="exp_title[]" placeholder="Full Stack Developer" oninput="up()"></div>
+    <div class="input-row">
+        <div class="form-group"><label>Start</label><input type="text" name="exp_start[]" placeholder="01/2026" oninput="up()"></div>
+        <div class="form-group"><label>End</label><input type="text" name="exp_end[]" placeholder="Present" oninput="up()"></div>
+    </div>
+    <div class="form-group"><label>Responsibilities (one per line)</label>
+        <textarea name="exp_resp[]" placeholder="Creating new modules&#10;Fixing bugs" oninput="up()"></textarea></div>`);}
+function addRow_education(){mkEntry('container_education',`
+    <div class="input-row">
+        <div class="form-group"><label>University</label><input type="text" name="edu_uni[]" placeholder="RUET" oninput="up()"></div>
+        <div class="form-group"><label>Location</label><input type="text" name="edu_location[]" placeholder="Rajshahi" oninput="up()"></div>
+    </div>
+    <div class="input-row">
+        <div class="form-group"><label>Degree</label><input type="text" name="edu_degree[]" placeholder="Computer Science and Engineering" oninput="up()"></div>
+        <div class="form-group"><label>Year</label><input type="text" name="edu_year[]" placeholder="10/2022" oninput="up()"></div>
+    </div>
+    <div class="form-group"><label>Description</label><input type="text" name="edu_desc[]" placeholder="Short description..." oninput="up()"></div>`);}
+function addRow_projects(){mkEntry('container_projects',`
+    <div class="form-group"><label>Project Name</label><input type="text" name="proj_name[]" placeholder="E-Commerce Platform" oninput="up()"></div>
+    <div class="form-group"><label>Tech Stack</label><input type="text" name="proj_tech[]" placeholder="Laravel, Vue.js, MySQL" oninput="up()"></div>
+    <div class="form-group"><label>Description</label><textarea name="proj_desc[]" placeholder="Brief description..." oninput="up()" style="min-height:50px;"></textarea></div>
+    <div class="form-group"><label>URL (optional)</label><input type="text" name="proj_url[]" placeholder="https://github.com/..." oninput="up()"></div>`);}
+function addRow_certifications(){mkEntry('container_certifications',`
+    <div class="input-row">
+        <div class="form-group"><label>Certificate</label><input type="text" name="cert_name[]" placeholder="AWS Solutions Architect" oninput="up()"></div>
+        <div class="form-group"><label>Issuer</label><input type="text" name="cert_issuer[]" placeholder="Amazon Web Services" oninput="up()"></div>
+    </div>
+    <div class="input-row">
+        <div class="form-group"><label>Date</label><input type="text" name="cert_date[]" placeholder="Jun 2024" oninput="up()"></div>
+        <div class="form-group"><label>Credential ID</label><input type="text" name="cert_id[]" placeholder="ABC-12345" oninput="up()"></div>
+    </div>`);}
+function addRow_languages(){mkEntry('container_languages',`
+    <div class="input-row">
+        <div class="form-group"><label>Language</label><input type="text" name="lang_name[]" placeholder="English" oninput="up()"></div>
+        <div class="form-group"><label>Proficiency</label>
+            <select name="lang_level[]" onchange="up()">
+                <option>Native</option><option>Fluent</option><option>Intermediate</option><option>Basic</option>
+            </select></div>
+    </div>`);}
+function addRow_extra(){mkEntry('container_extra',`
+    <div class="form-group"><label>Section Title</label><input type="text" name="extra_title[]" placeholder="Problem Solving" oninput="up()"></div>
+    <div class="form-group"><label>Content</label><input type="text" name="extra_content[]" placeholder="Codeforces (handle: ...), Leetcode ..." oninput="up()"></div>`);}
+
+// ── Data collectors ───────────────────────────────────────────────
+function D() {
+    return {
+        name:gv('cv_name'), role:gv('cv_role'),
+        lines: document.getElementById('show_lines_chk').checked,
+        phone:gv('phone'), email:gv('email'), loc:gv('location'),
+        li:gv('linkedin'), gh:gv('github'), summary:gv('summary'),
+        sL:gva('skill_label[]'), sV:gva('skill_value[]'),
+        eCo:gva('exp_company[]'), eLoc:gva('exp_location[]'), eTtl:gva('exp_title[]'),
+        eSt:gva('exp_start[]'), eEn:gva('exp_end[]'), eRsp:gva('exp_resp[]'),
+        dUni:gva('edu_uni[]'), dLoc:gva('edu_location[]'), dDeg:gva('edu_degree[]'),
+        dYr:gva('edu_year[]'), dDsc:gva('edu_desc[]'),
+        pNm:gva('proj_name[]'), pTc:gva('proj_tech[]'), pDc:gva('proj_desc[]'), pUr:gva('proj_url[]'),
+        cNm:gva('cert_name[]'), cIs:gva('cert_issuer[]'), cDt:gva('cert_date[]'), cId:gva('cert_id[]'),
+        lNm:gva('lang_name[]'), lLv:gva('lang_level[]'),
+        xTt:gva('extra_title[]'), xCt:gva('extra_content[]'),
+    };
+}
+
+// ── Shared section renderers — stStyle param is inline CSS string ─
+function r_skills(d, ss=''){
+    if(!secOn('skills')) return '';
+    const rows=d.sL.map((l,i)=>{const v=d.sV[i]||'';return(l||v)?`<div><span style="font-weight:bold">${esc(l)}:</span> ${esc(v)}</div>`:''}).join('');
+    return rows?`<div style="margin-top:10px"><div style="${ss}">Skills</div>${rows}</div>`:'';
+}
+function r_exp(d, ss=''){
+    if(!secOn('experience')) return '';
+    const bl=d.eCo.map((co,i)=>{
+        if(!co)return'';
+        let b=`<div style="margin-bottom:8px"><div style="font-weight:bold">${esc(co)}${d.eLoc[i]?' | '+esc(d.eLoc[i]):''}</div>`;
+        b+=`<div>${esc(d.eTtl[i]||'')}${(d.eSt[i]||d.eEn[i])?' | '+esc(d.eSt[i])+' – '+esc(d.eEn[i]):''}</div>`;
+        if(d.eRsp[i]){b+=`<div style="margin-top:2px">Responsibilities:</div>`;d.eRsp[i].split('\n').filter(l=>l.trim()).forEach((l,x)=>{b+=`<div style="margin-left:12px;color:#1155cc">${x+1}. ${esc(l.trim())}</div>`;});}
+        return b+'</div>';
+    }).join('');
+    return bl?`<div style="margin-top:10px"><div style="${ss}">Experience</div>${bl}</div>`:'';
+}
+function r_edu(d, ss='', uniStyle=''){
+    if(!secOn('education')) return '';
+    const bl=d.dUni.map((u,i)=>{
+        if(!u)return'';
+        let b=`<div style="margin-bottom:8px"><div style="font-weight:bold;${uniStyle}">${esc(u)}${d.dLoc[i]?' | '+esc(d.dLoc[i]):''}</div>`;
+        b+=`<div>${esc(d.dDeg[i]||'')}${d.dYr[i]?' | '+esc(d.dYr[i]):''}</div>`;
+        if(d.dDsc[i]) b+=`<div style="color:#1155cc">${esc(d.dDsc[i])}</div>`;
+        return b+'</div>';
+    }).join('');
+    return bl?`<div style="margin-top:10px"><div style="${ss}">Education</div>${bl}</div>`:'';
+}
+function r_proj(d, ss=''){
+    if(!secOn('projects')) return '';
+    const bl=d.pNm.map((n,i)=>{
+        if(!n)return'';
+        let b=`<div style="margin-bottom:8px"><div style="font-weight:bold">${esc(n)}${d.pTc[i]?` <span style="font-style:italic;font-weight:normal;color:#444">— ${esc(d.pTc[i])}</span>`:''}${d.pUr[i]?` <a href="${esc(d.pUr[i])}" target="_blank" rel="noopener noreferrer" aria-label="Open project link" title="Open project link" style="color:#1a0dab;text-decoration:none;display:inline-flex;vertical-align:middle;margin-left:4px"><span aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border:1px solid currentColor;border-radius:50%;font-size:10px">↗</span></a>`:''}</div>`;
+        if(d.pDc[i]) b+=`<div style="color:#1155cc">${esc(d.pDc[i])}</div>`;
+        return b+'</div>';
+    }).join('');
+    return bl?`<div style="margin-top:10px"><div style="${ss}">Projects</div>${bl}</div>`:'';
+}
+function r_cert(d, ss=''){
+    if(!secOn('certifications')) return '';
+    const bl=d.cNm.map((n,i)=>{
+        if(!n)return'';
+        let b=`<div style="margin-bottom:6px"><div style="font-weight:bold">${esc(n)}${d.cIs[i]?' — '+esc(d.cIs[i]):''}${d.cDt[i]?' | '+esc(d.cDt[i]):''}</div>`;
+        if(d.cId[i]) b+=`<div style="font-size:10px;color:#777">Credential ID: ${esc(d.cId[i])}</div>`;
+        return b+'</div>';
+    }).join('');
+    return bl?`<div style="margin-top:10px"><div style="${ss}">Certifications</div>${bl}</div>`:'';
+}
+function r_lang(d, ss=''){
+    if(!secOn('languages')) return '';
+    const rows=d.lNm.map((n,i)=>n?`<div style="margin-bottom:2px"><span style="font-weight:bold">${esc(n)}</span>${d.lLv[i]?' — '+esc(d.lLv[i]):''}</div>`:'').join('');
+    return rows?`<div style="margin-top:10px"><div style="${ss}">Languages</div>${rows}</div>`:'';
+}
+function r_extra(d, ss=''){
+    if(!secOn('extra')) return '';
+    return d.xTt.map((t,i)=>t?`<div style="margin-top:10px"><div style="${ss}">${esc(t)}</div><div>${esc(d.xCt[i]||'')}</div></div>`:'').join('');
+}
+function r_contact_inline(d) {
+    const p=[];
+    if(d.phone) p.push(esc(d.phone));
+    if(d.email) p.push(`<a href="mailto:${esc(d.email)}" style="color:inherit">${esc(d.email)}</a>`);
+    if(d.loc)   p.push(esc(d.loc));
+    if(d.li)    p.push(`<a href="${esc(d.li)}" style="color:inherit">Linkedin</a>`);
+    if(d.gh)    p.push(`<a href="${esc(d.gh)}" style="color:inherit">Github</a>`);
+    return p.join(' | ');
+}
+
+// ── Template renderers ────────────────────────────────────────────
+function stStyle(tmpl, lines) {
+    const b = lines ? {
+        classic:     'border-bottom:1px solid #aaa;',
+        professional:'border-bottom:2px solid #1e3a5f;',
+        minimal:     'border-bottom:1px dotted #aaa;',
+        modern_sb:   'border-bottom:1px solid #3d5166;',
+        modern_mn:   'border-left:3px solid #2c3e50;',
+    } : {};
+    const s = {
+        classic:     `font-size:12px;font-weight:bold;${b.classic||''}padding-bottom:2px;margin-bottom:6px`,
+        professional:`font-size:12px;font-weight:bold;color:#1e3a5f;${b.professional||''}padding-bottom:2px;margin-bottom:6px`,
+        minimal:     `font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:2px;${b.minimal||''}padding-bottom:3px;margin-bottom:7px;color:#555`,
+        modern_sb:   `font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:1px;color:#7f8c8d;${b.modern_sb||''}padding-bottom:3px;margin:12px 0 6px`,
+        modern_mn:   `font-size:12px;font-weight:bold;color:#2c3e50;${b.modern_mn||''}padding-left:7px;margin-bottom:6px`,
+    };
+    return s[tmpl] || s.classic;
+}
+
+function buildPreview_classic(d) {
+    const st = stStyle('classic', d.lines);
+    const hr = d.lines ? 'border:none;border-top:1px solid #aaa;margin:4px 0' : 'border:none;margin:4px 0';
+    const ct = r_contact_inline(d);
+    let h=`<div style="padding:20px;font-family:Arial,sans-serif;font-size:11px;line-height:1.5;color:#000">`;
+    if(d.name) h+=`<div style="font-size:22px;font-weight:bold;margin-bottom:2px">${esc(d.name)}</div>`;
+    if(d.role) h+=`<div style="font-style:italic;color:#555;font-size:12px;margin-bottom:4px">${esc(d.role)}</div>`;
+    h+=`<hr style="${hr}">`;
+    if(ct) h+=`<div style="font-size:10px;padding:3px 0">${ct}</div>`;
+    h+=`<hr style="${hr}">`;
+    if(secOn('summary')&&d.summary) h+=`<div style="margin-top:10px"><div style="${st}">Summary</div><p>${esc(d.summary)}</p></div>`;
+    h+=r_skills(d,st)+r_exp(d,st)+r_edu(d,st)+r_proj(d,st)+r_cert(d,st)+r_lang(d,st)+r_extra(d,st);
+    return h+'</div>';
+}
+
+function buildPreview_modern(d) {
+    const sideStyle = stStyle('modern_sb', d.lines);
+    const mainSt    = stStyle('modern_mn', d.lines);
+    const ct_parts=[];
+    if(d.phone) ct_parts.push(esc(d.phone));
+    if(d.email) ct_parts.push(`<a href="mailto:${esc(d.email)}" style="color:#bdc3c7">${esc(d.email)}</a>`);
+    if(d.loc)   ct_parts.push(esc(d.loc));
+    if(d.li)    ct_parts.push(`<a href="${esc(d.li)}" style="color:#bdc3c7">Linkedin</a>`);
+    if(d.gh)    ct_parts.push(`<a href="${esc(d.gh)}" style="color:#bdc3c7">Github</a>`);
+
+    let sb=`<div style="background:#2c3e50;color:#ecf0f1;padding:20px 16px;min-width:0">`;
+    sb+=`<div style="font-size:18px;font-weight:bold;margin-bottom:2px">${esc(d.name)}</div>`;
+    if(d.role) sb+=`<div style="font-style:italic;color:#95a5a6;font-size:11px;margin-bottom:12px">${esc(d.role)}</div>`;
+    if(ct_parts.length){sb+=`<div style="${sideStyle}">Contact</div>`;ct_parts.forEach(p=>sb+=`<div style="font-size:10px;margin-bottom:3px;color:#bdc3c7">${p}</div>`);}
+    if(secOn('skills')){
+        const rows=d.sL.map((l,i)=>{const v=d.sV[i]||'';return(l||v)?`<div style="margin-bottom:3px;font-size:10px"><span style="font-weight:bold;color:#ecf0f1">${esc(l)}</span><br><span style="color:#95a5a6">${esc(v)}</span></div>`:''}).join('');
+        if(rows) sb+=`<div style="${sideStyle}">Skills</div>`+rows;
+    }
+    if(secOn('languages')){
+        const rows=d.lNm.map((n,i)=>n?`<div style="font-size:10px;margin-bottom:2px"><span style="font-weight:bold">${esc(n)}</span>${d.lLv[i]?' — '+esc(d.lLv[i]):''}</div>`:'').join('');
+        if(rows) sb+=`<div style="${sideStyle}">Languages</div>`+rows;
+    }
+    sb+=`</div>`;
+
+    let mn=`<div style="background:#fff;color:#000;padding:20px;flex:1;min-width:0">`;
+    if(secOn('summary')&&d.summary) mn+=`<div style="${mainSt}">Summary</div><p style="margin-bottom:10px">${esc(d.summary)}</p>`;
+    mn+=r_exp(d,mainSt)+r_edu(d,mainSt)+r_proj(d,mainSt)+r_cert(d,mainSt)+r_extra(d,mainSt);
+    // replace generic st with mainSt inline — we pass raw HTML so use a wrapper
+    mn+=`</div>`;
+
+    return `<div style="display:flex;font-family:Arial,sans-serif;font-size:11px;line-height:1.5;min-height:300px">${sb}${mn}</div>`;
+}
+
+function buildPreview_professional(d) {
+    const st = stStyle('professional', d.lines);
+    const ct = r_contact_inline({...d, li:d.li, gh:d.gh});
+    let h=`<div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.5;color:#000">`;
+    h+=`<div style="background:#1e3a5f;color:#fff;padding:18px 20px;margin-bottom:12px">`;
+    h+=`<div style="font-size:24px;font-weight:bold;margin-bottom:2px">${esc(d.name)}</div>`;
+    if(d.role) h+=`<div style="font-style:italic;color:#a8c8e8;font-size:12px;margin-bottom:6px">${esc(d.role)}</div>`;
+    if(ct) h+=`<div style="font-size:10px;color:#cde">${ct}</div>`;
+    h+=`</div><div style="padding:0 20px 20px">`;
+    if(secOn('summary')&&d.summary) h+=`<div style="margin-top:10px"><div style="${st}">Summary</div><p>${esc(d.summary)}</p></div>`;
+    h+=r_skills(d,st)+r_exp(d,st)+r_edu(d,st)+r_proj(d,st)+r_cert(d,st)+r_lang(d,st)+r_extra(d,st);
+    return h+'</div></div>';
+}
+
+function buildPreview_minimal(d) {
+    const st = stStyle('minimal', d.lines);
+    const hr = d.lines ? 'border:none;border-top:1px solid #ccc;margin:5px 0' : 'border:none;margin:5px 0';
+    const ct = r_contact_inline(d);
+    let h=`<div style="padding:24px;font-family:Georgia,serif;font-size:11px;line-height:1.7;color:#222">`;
+    if(d.name) h+=`<div style="font-size:26px;font-weight:normal;letter-spacing:1px;margin-bottom:2px">${esc(d.name)}</div>`;
+    if(d.role) h+=`<div style="font-style:italic;color:#888;font-size:12px;margin-bottom:5px">${esc(d.role)}</div>`;
+    h+=`<hr style="${hr}">`;
+    if(ct) h+=`<div style="font-size:10px;padding:3px 0;color:#555">${ct}</div>`;
+    h+=`<hr style="${hr}">`;
+    if(secOn('summary')&&d.summary) h+=`<div style="margin-top:14px"><div style="${st}">Summary</div><p>${esc(d.summary)}</p></div>`;
+    h+=r_skills(d,st)+r_exp(d,st)+r_edu(d,st)+r_proj(d,st)+r_cert(d,st)+r_lang(d,st)+r_extra(d,st);
+    return h+'</div>';
+}
+
+function buildPreview_executive(d) {
+    return buildPreview_professional(d).replaceAll('#1e3a5f','#1f2937').replaceAll('#a8c8e8','#cbd5e1').replaceAll('#cde','#e5e7eb');
+}
+
+// Patch: override r_* to use inline styles instead of class names for preview
+// (preview uses inline styles; r_* functions output class-based HTML for PHP)
+// So we build preview with inline-style versions directly in each builder above.
+// The shared r_* are only used by PHP. Preview uses separate builders. ✓
+
+function up() {
+    const d=D();
+    let h='';
+    switch(currentTemplate){
+        case 'modern':       h=buildPreview_modern(d);       break;
+        case 'professional': h=buildPreview_professional(d); break;
+        case 'minimal':      h=buildPreview_minimal(d);      break;
+        case 'executive':    h=buildPreview_executive(d);    break;
+        default:             h=buildPreview_classic(d);
+    }
+    document.getElementById('cvPreview').innerHTML=h||'<p style="padding:20px;color:#aaa;font-size:12px;font-family:sans-serif;">Start filling the form...</p>';
+}
+
+// ── Draft management ─────────────────────────────────────────────
+let _draftId = 0;
+
+function openSaveDraft() {
+    document.getElementById('draftModal').style.display = 'flex';
+    document.getElementById('draftModalName').focus();
+}
+function closeDraftModal() {
+    document.getElementById('draftModal').style.display = 'none';
+}
+function newDraft() {
+    _draftId = 0;
+    document.getElementById('draftBadge').style.display = 'none';
+    document.getElementById('draftModalName').value = '';
+}
+
+function saveDraft() {
+    const name = document.getElementById('draftModalName').value.trim();
+    if (!name) { document.getElementById('draftModalName').focus(); return; }
+    const fd = new FormData(document.getElementById('cvForm'));
+    const obj = {};
+    for (const [k, v] of fd.entries()) {
+        if (k === 'action') continue;
+        if (k.endsWith('[]')) {
+            const key = k.slice(0,-2);
+            if (!obj[key]) obj[key] = [];
+            obj[key].push(v);
+        } else if (/^\w+\[\w+\]$/.test(k)) {
+            const [outer, rest] = k.split('[');
+            const inner = rest.replace(']','');
+            if (!obj[outer]) obj[outer] = {};
+            obj[outer][inner] = v;
+        } else {
+            obj[k] = v;
+        }
+    }
+    const body = new FormData();
+    body.append('action','save_draft');
+    body.append('draft_name', name);
+    body.append('cv_data', JSON.stringify(obj));
+    if (_draftId) body.append('draft_id', _draftId);
+    fetch('', {method:'POST', body})
+        .then(r => r.json())
+        .then(r => {
+            if (!r.ok) return;
+            _draftId = r.id;
+            closeDraftModal();
+            loadDraftList();
+            const b = document.getElementById('draftBadge');
+            b.textContent = '✓ Draft: ' + name;
+            b.style.display = 'block';
+        });
+}
+
+function loadDraftList() {
+    const el = document.getElementById('draftList');
+    fetch('?action=list_drafts')
+        .then(r => r.json())
+        .then(rows => {
+            if (!rows.length) {
+                el.innerHTML = '<div style="color:#bbb;font-size:11px;padding:4px 0">No saved drafts.</div>';
+                return;
+            }
+            el.innerHTML = rows.map(r => `
+                <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #f5f5f5">
+                    <div style="flex:1;min-width:0">
+                        <div style="font-weight:600;font-size:12px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.draft_name)}</div>
+                        <div style="font-size:10px;color:#bbb">${r.updated_at}</div>
+                    </div>
+                    <button data-id="${r.id}" data-name="${esc(r.draft_name)}"
+                        onclick="loadDraft(+this.dataset.id,this.dataset.name)"
+                        style="flex-shrink:0;font-size:11px;padding:2px 7px;border:1px solid #667eea;color:#667eea;background:none;border-radius:4px;cursor:pointer">Load</button>
+                    <button data-id="${r.id}" onclick="delDraft(+this.dataset.id,this)"
+                        style="flex-shrink:0;font-size:11px;padding:2px 7px;border:1px solid #e74c3c;color:#e74c3c;background:none;border-radius:4px;cursor:pointer">✕</button>
+                </div>`).join('');
+        });
+}
+
+function loadDraft(id, name) {
+    fetch('?action=get_draft&id=' + id)
+        .then(r => r.json())
+        .then(d => {
+            if (!d) return;
+            fillForm(d);
+            _draftId = id;
+            document.getElementById('draftModalName').value = name;
+            const b = document.getElementById('draftBadge');
+            b.textContent = '✓ Draft: ' + name;
+            b.style.display = 'block';
+        });
+}
+
+function delDraft(id, btn) {
+    if (!confirm('Delete this draft?')) return;
+    const body = new FormData();
+    body.append('action','delete_draft');
+    body.append('id', id);
+    fetch('', {method:'POST', body})
+        .then(r => r.json())
+        .then(() => {
+            if (_draftId === id) newDraft();
+            loadDraftList();
+        });
+}
+
+function fillForm(d) {
+    ['cv_name','cv_role','phone','email','location','linkedin','github','summary'].forEach(f => {
+        const el = document.querySelector(`[name="${f}"]`);
+        if (el && d[f] !== undefined) el.value = d[f];
+    });
+    if (d.cv_template) setTemplate(d.cv_template);
+    const linesOn = d.show_lines !== '0';
+    document.getElementById('show_lines').value = linesOn ? '1' : '0';
+    document.getElementById('show_lines_chk').checked = linesOn;
+    if (d.sec_on) {
+        Object.entries(d.sec_on).forEach(([k,v]) => {
+            const on = v === '1';
+            document.getElementById('sec_on_'+k).value = on ? '1' : '0';
+            const chk = document.getElementById('secchk_'+k);
+            if (chk) chk.checked = on;
+            const body = document.getElementById('secbody_'+k);
+            if (body) body.classList.toggle('hidden', !on);
+        });
+    }
+    ['skills','experience','education','projects','certifications','languages','extra'].forEach(k => {
+        const c = document.getElementById('container_'+k);
+        if (c) c.innerHTML = '';
+    });
+    const fill = (nm, count) => { for (let i=0;i<count;i++) window['addRow_'+nm](); };
+    fill('skills', (d.skill_label||[]).length);
+    document.querySelectorAll('[name="skill_label[]"]').forEach((e,i)=>e.value=(d.skill_label||[])[i]||'');
+    document.querySelectorAll('[name="skill_value[]"]').forEach((e,i)=>e.value=(d.skill_value||[])[i]||'');
+    fill('experience', (d.exp_company||[]).length);
+    document.querySelectorAll('[name="exp_company[]"]').forEach((e,i)=>e.value=(d.exp_company||[])[i]||'');
+    document.querySelectorAll('[name="exp_location[]"]').forEach((e,i)=>e.value=(d.exp_location||[])[i]||'');
+    document.querySelectorAll('[name="exp_title[]"]').forEach((e,i)=>e.value=(d.exp_title||[])[i]||'');
+    document.querySelectorAll('[name="exp_start[]"]').forEach((e,i)=>e.value=(d.exp_start||[])[i]||'');
+    document.querySelectorAll('[name="exp_end[]"]').forEach((e,i)=>e.value=(d.exp_end||[])[i]||'');
+    document.querySelectorAll('[name="exp_resp[]"]').forEach((e,i)=>e.value=(d.exp_resp||[])[i]||'');
+    fill('education', (d.edu_uni||[]).length);
+    document.querySelectorAll('[name="edu_uni[]"]').forEach((e,i)=>e.value=(d.edu_uni||[])[i]||'');
+    document.querySelectorAll('[name="edu_location[]"]').forEach((e,i)=>e.value=(d.edu_location||[])[i]||'');
+    document.querySelectorAll('[name="edu_degree[]"]').forEach((e,i)=>e.value=(d.edu_degree||[])[i]||'');
+    document.querySelectorAll('[name="edu_year[]"]').forEach((e,i)=>e.value=(d.edu_year||[])[i]||'');
+    document.querySelectorAll('[name="edu_desc[]"]').forEach((e,i)=>e.value=(d.edu_desc||[])[i]||'');
+    fill('projects', (d.proj_name||[]).length);
+    document.querySelectorAll('[name="proj_name[]"]').forEach((e,i)=>e.value=(d.proj_name||[])[i]||'');
+    document.querySelectorAll('[name="proj_tech[]"]').forEach((e,i)=>e.value=(d.proj_tech||[])[i]||'');
+    document.querySelectorAll('[name="proj_desc[]"]').forEach((e,i)=>e.value=(d.proj_desc||[])[i]||'');
+    document.querySelectorAll('[name="proj_url[]"]').forEach((e,i)=>e.value=(d.proj_url||[])[i]||'');
+    fill('certifications', (d.cert_name||[]).length);
+    document.querySelectorAll('[name="cert_name[]"]').forEach((e,i)=>e.value=(d.cert_name||[])[i]||'');
+    document.querySelectorAll('[name="cert_issuer[]"]').forEach((e,i)=>e.value=(d.cert_issuer||[])[i]||'');
+    document.querySelectorAll('[name="cert_date[]"]').forEach((e,i)=>e.value=(d.cert_date||[])[i]||'');
+    document.querySelectorAll('[name="cert_id[]"]').forEach((e,i)=>e.value=(d.cert_id||[])[i]||'');
+    fill('languages', (d.lang_name||[]).length);
+    document.querySelectorAll('[name="lang_name[]"]').forEach((e,i)=>e.value=(d.lang_name||[])[i]||'');
+    document.querySelectorAll('[name="lang_level[]"]').forEach((e,i)=>e.value=(d.lang_level||[])[i]||'');
+    fill('extra', (d.extra_title||[]).length);
+    document.querySelectorAll('[name="extra_title[]"]').forEach((e,i)=>e.value=(d.extra_title||[])[i]||'');
+    document.querySelectorAll('[name="extra_content[]"]').forEach((e,i)=>e.value=(d.extra_content||[])[i]||'');
+    up();
+}
+
+// ── Init ──────────────────────────────────────────────────────────
+addRow_skills();addRow_skills();addRow_skills();
+addRow_experience();
+addRow_education();
+addRow_projects();
+addRow_certifications();
+addRow_languages();
+addRow_extra();
+loadDraftList();
+</script>
+<?php pageFooter(); ?>
