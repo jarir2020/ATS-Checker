@@ -3,14 +3,26 @@
   const base=window.ATS_BASE_URL, provider=window.ATS_AI_PROVIDER||'configured AI provider', aiEnabled=window.ATS_AI_ENABLED===true;
   const node=(tag,className,text)=>{const el=document.createElement(tag);if(className)el.className=className;if(text!==undefined)el.textContent=text;return el;};
   async function post(data){const response=await fetch(base+'index.php',{method:'POST',body:data});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Request failed.');return result;}
+  function transferToGenerator(cv,button){
+    const targetOrigin=new URL(base,window.location.href).origin,child=window.open(base+'?page=generator','_blank');
+    if(!child){out.append(node('div','error-message','Allow pop-ups for this site to transfer the imported CV to the generator.'));return;}
+    const transferId=`${Date.now()}-${Math.random().toString(36).slice(2)}`;let attempts=0;
+    button.disabled=true;button.textContent='Opening generator…';
+    const listener=event=>{if(event.origin!==targetOrigin||event.source!==child||event.data?.type!=='ats-cv-import-received'||event.data.transferId!==transferId)return;window.removeEventListener('message',listener);clearInterval(timer);button.textContent='CV sent to generator';};
+    window.addEventListener('message',listener);
+    const timer=setInterval(()=>{
+      if(child.closed||attempts++>80){clearInterval(timer);window.removeEventListener('message',listener);button.disabled=false;button.textContent='Review mapping in generator →';return;}
+      child.postMessage({type:'ats-cv-import',transferId,cv},targetOrigin);
+    },250);
+  }
 
   form.addEventListener('submit',async event=>{
-    event.preventDefault();out.replaceChildren(node('p','loading','Extracting CV content locally…'));const data=new FormData(form);data.append('action','import_file');
+    event.preventDefault();out.replaceChildren(node('p','loading','Uploading the file for server-side extraction…'));const data=new FormData(form);data.append('action','import_file');
     try{
       const result=await post(data);out.replaceChildren();
       const box=node('div','import-notes');box.append(node('strong','',result.format+' text extracted'));const list=node('ul');(result.notes||[]).forEach(note=>list.append(node('li','',note)));box.append(list);out.append(box);
       const details=node('details','import-text-details');details.append(node('summary','','Show extracted source text'),node('pre','',result.text||''));out.append(details);
-      const link=node('a','button button-primary full-button','Review current mapping in generator →');link.href=base+'?page=generator&imported=1';out.append(link);
+      const open=node('button','button button-primary full-button','Review mapping in generator →');open.type='button';open.addEventListener('click',()=>transferToGenerator(result.cv,open));out.append(open);
       if(aiEnabled)renderAiMapper(result.text||'',result.cv?.personal?.photo||'');
     }catch(error){out.replaceChildren(node('div','error-message',error.message));}
   });
@@ -36,12 +48,7 @@
         const notes=node('ul','import-ai-notes');(response.result.notes||[]).forEach(note=>notes.append(node('li','',note)));if(notes.childNodes.length)resultBox.append(notes);
         const review=node('details','import-text-details');review.append(node('summary','','Review suggested fields'),node('pre','',JSON.stringify(suggestedCv,null,2)));resultBox.append(review);
         const use=node('button','button button-primary full-button','Review this suggested mapping in generator →');use.type='button';resultBox.append(use);
-        use.addEventListener('click',async()=>{
-          use.disabled=true;use.textContent='Preparing generator…';
-          const stage=new FormData();stage.append('action','stage_import');stage.append('csrf_token',window.ATS_CSRF);stage.append('cv_json',JSON.stringify(suggestedCv));
-          try{await post(stage);window.location.assign(base+'?page=generator&imported=1');}
-          catch(error){use.disabled=false;use.textContent='Review this suggested mapping in generator →';resultBox.append(node('div','error-message',error.message));}
-        });
+        use.addEventListener('click',()=>transferToGenerator(suggestedCv,use));
       }catch(error){resultBox.replaceChildren(node('div','error-message',error.message));}
       finally{suggest.disabled=false;}
     });

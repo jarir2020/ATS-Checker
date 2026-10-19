@@ -1,26 +1,25 @@
 <?php
 use ATS\Ats\AtsChecker;
 use ATS\Ai\AiAssistant;
-use ATS\Cv\CvDocument;
-use ATS\Cv\CvRenderer;
 use ATS\Cv\DraftRepository;
-use ATS\Export\CvExporter;
+use ATS\Database\MigrationRunner;
 use ATS\Import\CvImporter;
 
 require_once __DIR__ . '/bootstrap.php';
 require_once BASE_PATH . '/includes/security.php';
+require_once BASE_PATH . '/includes/auth.php';
 require_once BASE_PATH . '/includes/db.php';
 header('Cache-Control: private, no-store, max-age=0');
 header('Pragma: no-cache');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 
-function postedCv(): array
+function postedObject(string $key, int $limit = 1500000): array
 {
-    $json = requestString('cv_json', 2000000);
-    $data = json_decode($json, true);
-    if (!is_array($data)) throw new InvalidArgumentException('The CV data was not readable. Refresh and try again.');
-    return CvDocument::normalize($data);
+    $value = requestString($key, $limit);
+    $decoded = json_decode($value, true);
+    if (!is_array($decoded)) throw new InvalidArgumentException('The encrypted request data was not readable. Refresh and try again.');
+    return $decoded;
 }
 
 function redactForAi(string $text): string
@@ -45,103 +44,132 @@ function consumeAiRequest(): void
     $_SESSION['ai_request_times'] = $requests;
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action'])) {
-    try {
-        $repo = new DraftRepository();
-        if ($_GET['action'] === 'drafts_list') jsonResponse(['ok' => true, 'drafts' => $repo->list()]);
-        if ($_GET['action'] === 'draft_get') {
-            $id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
-            $cv = $id ? $repo->get((int)$id) : null;
-            if ($cv === null) jsonResponse(['ok' => false, 'error' => 'Draft not found.'], 404);
-            jsonResponse(['ok' => true, 'cv' => $cv]);
+// Authentication endpoints remain public so users can sign in and out. All CV,
+// draft, export, import, and AI endpoints are protected below.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'auth_login') {
+    requireCsrf();
+
+    if (!authIsConfigured()) {
+        $loginError = 'Authentication is not configured. Set APP_PASSWORD_HASH in the server .env file.';
+        http_response_code(503);
+    } elseif (!authLoginAllowed()) {
+        $loginError = 'Too many unsuccessful attempts. Wait 15 minutes before trying again.';
+        http_response_code(429);
+    } elseif (authPasswordMatches(requestString('password', 4096))) {
+        if (authMarkAuthenticated()) {
+            header('Location: ' . BASE_URL . '?page=generator', true, 303);
+            exit;
         }
-        jsonResponse(['ok' => false, 'error' => 'Unknown request.'], 400);
-    } catch (Throwable $error) {
-        jsonResponse(['ok' => false, 'error' => 'Draft storage is unavailable. Check the database configuration.'], 503);
+        $loginError = 'A secure session could not be started. Refresh the page and try again.';
+        http_response_code(500);
+    } else {
+        authRecordFailedLogin();
+        $loginError = 'The password was not accepted.';
+        http_response_code(401);
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'auth_logout') {
+    requireCsrf();
+    authLogout();
+    header('Location: ' . BASE_URL . '?page=login', true, 303);
+    exit;
+}
+
+// deploy.sh can request migrations through this explicit token-protected route.
+// Ordinary page requests never apply migrations.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'deploy_migrations') {
+    $expectedToken = trim((string)($_ENV['DEPLOY_MIGRATION_TOKEN'] ?? ''));
+    $providedToken = (string)($_SERVER['HTTP_X_ATS_DEPLOY_TOKEN'] ?? '');
+    if (strlen($expectedToken) < 32 || !preg_match('/^[A-Za-z0-9._~-]{32,}$/D', $expectedToken)) {
+        jsonResponse(['ok' => false, 'error' => 'Deployment migration token is not configured.'], 503);
+    }
+    if (!preg_match('/^[A-Za-z0-9._~-]{32,}$/D', $providedToken) || !hash_equals($expectedToken, $providedToken)) {
+        jsonResponse(['ok' => false, 'error' => 'Deployment migration authorization failed.'], 403);
+    }
+    try {
+        $runner = new MigrationRunner(getDb(), BASE_PATH . '/migrations');
+        $mode = requestString('mode', 16);
+        if ($mode === 'status') jsonResponse(['ok' => true] + $runner->status());
+        if ($mode === 'apply') {
+            $backupConfirmed = requestString('backup_confirmed', 3) === 'yes';
+            jsonResponse(['ok' => true] + $runner->applyPending($backupConfirmed));
+        }
+        jsonResponse(['ok' => false, 'error' => 'Unknown migration operation.'], 400);
+    } catch (InvalidArgumentException | RuntimeException $error) {
+        jsonResponse(['ok' => false, 'error' => $error->getMessage()], 422);
+    } catch (Throwable $error) {
+        jsonResponse(['ok' => false, 'error' => 'The migration operation failed. Review the database schema and server logs.'], 500);
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action'])) {
+    requireAuthentication(true);
+    try {
+        $repo = new DraftRepository();
+        if ($_GET['action'] === 'vault_meta') jsonResponse(['ok' => true, 'metadata' => $repo->getVaultMetadata()]);
+        if ($_GET['action'] === 'drafts_list') jsonResponse(['ok' => true, 'drafts' => $repo->list()]);
+        if ($_GET['action'] === 'draft_get') {
+            $id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+            $record = $id ? $repo->getRecord((int)$id) : null;
+            if ($record === null) jsonResponse(['ok' => false, 'error' => 'Draft not found.'], 404);
+            jsonResponse(['ok' => true] + $record);
+        }
+        if ($_GET['action'] === 'draft_migration_source') {
+            $id = filter_var($_GET['id'] ?? null, FILTER_VALIDATE_INT);
+            $source = $id ? $repo->getMigrationRecord((int)$id) : null;
+            if ($source === null) jsonResponse(['ok' => false, 'error' => 'Legacy draft source is no longer available.'], 404);
+            jsonResponse(['ok' => true, 'legacy' => $source]);
+        }
+        if ($_GET['action'] === 'migration_status') jsonResponse(['ok' => true] + $repo->migrationStatus());
+        jsonResponse(['ok' => false, 'error' => 'Unknown request.'], 400);
+    } catch (Throwable $error) {
+        jsonResponse(['ok' => false, 'error' => 'Draft storage is unavailable. Check the database settings and, for an existing database, apply the encrypted-draft SQL migration after verifying a backup.'], 503);
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !in_array($_POST['action'] ?? '', ['auth_login', 'auth_logout'], true)) {
+    requireAuthentication(true);
     requireCsrf();
     $action = $_POST['action'] ?? '';
     try {
-        if ($action === 'preview') {
-            $cv = postedCv();
-            jsonResponse(['ok' => true, 'html' => CvRenderer::html($cv)]);
+        if ($action === 'vault_initialize') {
+            $metadata = postedObject('metadata', 10000);
+            jsonResponse(['ok' => true] + (new DraftRepository())->initializeVault($metadata));
         }
-        if ($action === 'ats_pdf_preview') {
-            $cv = postedCv();
-            if (trim(CvRenderer::text($cv)) === '') {
-                jsonResponse(['ok' => true, 'text' => '', 'warnings' => [], 'message' => 'Add CV content to check its PDF text.']);
-            }
-            $pdf = (new CvExporter())->export($cv, 'pdf')['body'];
-            if (strlen($pdf) > 20000000) throw new RuntimeException('This PDF is too large to inspect. Reduce the CV content and try again.');
-            $tempPdf = tempnam(sys_get_temp_dir(), 'ats-preview-');
-            if ($tempPdf === false) throw new RuntimeException('Could not prepare a temporary PDF for inspection.');
-            try {
-                if (file_put_contents($tempPdf, $pdf) !== strlen($pdf)) throw new RuntimeException('Could not prepare the generated PDF for inspection.');
-                $text = (new CvImporter())->extractPdfText($tempPdf);
-            } finally {
-                @unlink($tempPdf);
-            }
-
-            $review = (new AtsChecker())->inspect($text);
-            $warnings = array_values(array_filter($review['findings'], static fn($finding) => $finding['severity'] === 'warning'));
-            $expectedHeadings = [];
-            if ($cv['enabled_sections']['summary'] && trim($cv['summary']) !== '') $expectedHeadings[] = 'SUMMARY';
-            foreach ([
-                'skills' => 'SKILLS', 'experience' => 'EXPERIENCE', 'education' => 'EDUCATION',
-                'projects' => 'PROJECTS', 'certifications' => 'CERTIFICATIONS', 'languages' => 'LANGUAGES',
-            ] as $section => $heading) {
-                if ($cv['enabled_sections'][$section] && !empty($cv[$section])) $expectedHeadings[] = $heading;
-            }
-            if ($cv['enabled_sections']['custom_sections']) {
-                foreach ($cv['custom_sections'] as $section) {
-                    $heading = strtoupper(trim($section['title']));
-                    if ($heading !== '' && !in_array($heading, $expectedHeadings, true)) $expectedHeadings[] = $heading;
-                }
-            }
-            $lastHeadingOffset = -1;
-            foreach ($expectedHeadings as $heading) {
-                $pattern = '/^[\h\f]*' . preg_quote($heading, '/') . '[\h]*$/mi';
-                if (!preg_match($pattern, $text, $headingMatch, PREG_OFFSET_CAPTURE)) {
-                    $warnings[] = ['severity' => 'warning', 'title' => 'Section heading missing from PDF text', 'message' => 'The ' . $heading . ' heading was not found in the extracted PDF text.', 'section' => $heading, 'evidence' => $heading];
-                    continue;
-                }
-                $headingOffset = (int)$headingMatch[0][1];
-                if ($headingOffset < $lastHeadingOffset) {
-                    $warnings[] = ['severity' => 'warning', 'title' => 'Section order differs in PDF text', 'message' => 'The ' . $heading . ' heading appears out of order in the extracted PDF text.', 'section' => $heading, 'evidence' => $heading];
-                } else {
-                    $lastHeadingOffset = $headingOffset;
-                }
-            }
-            jsonResponse(['ok' => true, 'text' => $text, 'warnings' => $warnings]);
+        if ($action === 'vault_update') {
+            $expected = postedObject('expected_metadata', 10000);
+            $replacement = postedObject('metadata', 10000);
+            jsonResponse(['ok' => true, 'metadata' => (new DraftRepository())->replaceVaultMetadata($expected, $replacement)]);
         }
-        if ($action === 'save_draft') {
-            $cv = postedCv();
-            $id = (new DraftRepository())->save(requestString('draft_name', 255), $cv, (int)($_POST['draft_id'] ?? 0));
-            jsonResponse(['ok' => true, 'id' => $id]);
+        if ($action === 'draft_reserve') {
+            $repo = new DraftRepository();
+            if (!$repo->getVaultMetadata()) jsonResponse(['ok' => false, 'error' => 'Initialize the encrypted vault before saving drafts.'], 409);
+            jsonResponse(['ok' => true, 'id' => $repo->reserve()]);
+        }
+        if ($action === 'draft_save_encrypted' || $action === 'draft_migrate_save') {
+            $repo = new DraftRepository();
+            if (!$repo->getVaultMetadata()) jsonResponse(['ok' => false, 'error' => 'Initialize the encrypted vault before saving drafts.'], 409);
+            $id = filter_var($_POST['id'] ?? null, FILTER_VALIDATE_INT);
+            if (!$id || $id < 1) jsonResponse(['ok' => false, 'error' => 'Draft identifier is invalid.'], 422);
+            $payload = postedObject('envelope', 1500000);
+            $name = postedObject('name_envelope', 10000);
+            $repo->saveEncrypted((int)$id, $payload, $name);
+            jsonResponse(['ok' => true, 'id' => (int)$id]);
+        }
+        if ($action === 'draft_purge_plaintext') {
+            if (($_POST['backup_confirmed'] ?? '') !== 'yes') {
+                jsonResponse(['ok' => false, 'error' => 'Confirm that a fresh offline database backup was made and verified.'], 422);
+            }
+            if (requestString('confirmation', 32) !== 'REMOVE PLAINTEXT') {
+                jsonResponse(['ok' => false, 'error' => 'Confirm removal of the legacy plaintext values.'], 422);
+            }
+            $cleared = (new DraftRepository())->clearPlaintextAfterMigration();
+            jsonResponse(['ok' => true, 'cleared' => $cleared]);
         }
         if ($action === 'delete_draft') {
             (new DraftRepository())->delete((int)($_POST['id'] ?? 0));
             jsonResponse(['ok' => true]);
-        }
-        if ($action === 'export') {
-            $cv = postedCv();
-            $file = (new CvExporter())->export($cv, requestString('format', 10));
-            $filename = 'cv.' . $file['extension'];
-            header('Content-Type: ' . $file['mime']);
-            header('Content-Disposition: attachment; filename="' . $filename . '"');
-            header('Content-Length: ' . strlen($file['body']));
-            header('X-Content-Type-Options: nosniff');
-            echo $file['body'];
-            exit;
-        }
-        if ($action === 'check_text') {
-            $text = requestString('cv_text', 200000);
-            if (trim($text) === '') jsonResponse(['ok' => false, 'error' => 'Paste CV text or upload a file first.'], 422);
-            $result = (new AtsChecker())->inspect($text, requestString('job_description', 80000));
-            jsonResponse(['ok' => true, 'result' => $result]);
         }
         if ($action === 'check_file') {
             $file = (new CvImporter())->extractUpload($_FILES['cv_file'] ?? []);
@@ -152,12 +180,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $importer = new CvImporter();
             $extracted = $importer->extractUpload($_FILES['cv_file'] ?? [], true);
             $mapped = $importer->mapToCv($extracted['text'], $extracted['photo'] ?? '');
-            $_SESSION['imported_cv'] = $mapped['cv'];
             jsonResponse(['ok' => true, 'format' => $extracted['format'], 'cv' => $mapped['cv'], 'text' => $extracted['text'], 'notes' => $mapped['notes']]);
-        }
-        if ($action === 'stage_import') {
-            $_SESSION['imported_cv'] = postedCv();
-            jsonResponse(['ok' => true]);
         }
         if ($action === 'ai_import_map') {
             if (!AiAssistant::isConfigured()) jsonResponse(['ok' => false, 'error' => 'AI assistance is not configured for the selected provider.'], 503);
@@ -191,11 +214,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!AiAssistant::isConfigured()) jsonResponse(['ok' => false, 'error' => 'AI assistance is not configured for the selected provider.'], 503);
             if (($_POST['ai_consent'] ?? '') !== 'yes') jsonResponse(['ok' => false, 'error' => 'Confirm the AI data disclosure before continuing.'], 422);
             consumeAiRequest();
-            $targetIds = json_decode(requestString('target_ids', 10000), true);
-            if (!is_array($targetIds)) jsonResponse(['ok' => false, 'error' => 'Choose the text items to review.'], 422);
+            $targets = postedObject('selected_targets', 400000);
+            $findings = postedObject('local_findings', 200000);
+            if (array_values($targets) !== $targets || array_values($findings) !== $findings) jsonResponse(['ok' => false, 'error' => 'Choose the text items to review.'], 422);
             $includeJobDescription = ($_POST['include_job_description'] ?? '') === 'yes';
             $jobDescription = $includeJobDescription ? requestString('job_description', 5000) : '';
-            $result = (new AiAssistant())->suggestAutofixes(postedCv(), $targetIds, $jobDescription);
+            $result = (new AiAssistant())->suggestAutofixesFromSelection($targets, $findings, $jobDescription);
             jsonResponse(['ok' => true, 'result' => $result]);
         }
         jsonResponse(['ok' => false, 'error' => 'Unknown request.'], 400);
@@ -206,9 +230,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$page = $_GET['page'] ?? 'home';
-$pages = ['home' => 'Dashboard', 'generator' => 'Generator', 'checker' => 'Checker', 'converter' => 'Converter'];
+$page = !empty($loginError) ? 'login' : ($_GET['page'] ?? 'home');
+$pages = ['home' => 'Dashboard', 'generator' => 'Generator', 'checker' => 'Checker', 'converter' => 'Converter', 'login' => 'Sign in'];
 if (!isset($pages[$page])) $page = 'home';
+
+if ($page === 'login') {
+    if (authIsAuthenticated()) {
+        header('Location: ' . BASE_URL . '?page=generator', true, 302);
+        exit;
+    }
+    require BASE_PATH . '/includes/layout.php';
+    require BASE_PATH . '/pages/login.php';
+    exit;
+}
+
+requireAuthentication();
+
 require BASE_PATH . '/includes/layout.php';
 $pageFile = BASE_PATH . '/pages/' . $page . '.php';
 require $pageFile;

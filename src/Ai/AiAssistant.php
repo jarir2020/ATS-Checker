@@ -1,9 +1,7 @@
 <?php
 namespace ATS\Ai;
 
-use ATS\Ats\AtsChecker;
 use ATS\Cv\CvDocument;
-use ATS\Cv\CvRenderer;
 
 final class AiAssistant
 {
@@ -72,46 +70,35 @@ final class AiAssistant
         return ['suggestions' => $suggestions, 'terms_to_review' => $terms];
     }
 
-    public function suggestAutofixes(array $cvData, array $targetIds, string $jobDescription = ''): array
+    public function suggestAutofixesFromSelection(array $targets, array $localFindings, string $jobDescription = ''): array
     {
-        if (count($targetIds) > 30) throw new \InvalidArgumentException('Select no more than 30 text items for the AI review.');
-        $cv = CvDocument::normalize($cvData);
-        $available = [];
-        if (($cv['enabled_sections']['summary'] ?? true) && trim($cv['summary']) !== '') {
-            $available['summary'] = ['id' => 'summary', 'label' => 'Professional summary', 'text' => $cv['summary']];
-        }
-        if ($cv['enabled_sections']['experience'] ?? true) {
-            foreach ($cv['experience'] as $experienceIndex => $experience) {
-                foreach ($experience['bullets'] as $bulletIndex => $bullet) {
-                    if (trim($bullet) === '') continue;
-                    $id = 'experience:' . $experienceIndex . ':bullet:' . $bulletIndex;
-                    $available[$id] = [
-                        'id' => $id,
-                        'label' => 'Experience ' . ($experienceIndex + 1) . ', bullet ' . ($bulletIndex + 1),
-                        'text' => $bullet,
-                    ];
-                    if (count($available) >= 30) break 2;
-                }
-            }
-        }
-
         $selected = [];
-        foreach ($targetIds as $id) {
-            if (!is_string($id) || !isset($available[$id]) || isset($selected[$id])) continue;
-            $target = $available[$id];
-            if (mb_strlen($target['text']) > 4000) throw new \InvalidArgumentException('Each selected text item must be 4,000 characters or shorter.');
-            $selected[$id] = $target;
+        if (count($targets) > 30) throw new \InvalidArgumentException('Select no more than 30 text items for the AI review.');
+        foreach ($targets as $target) {
+            if (!is_array($target)) continue;
+            $id = is_string($target['id'] ?? null) ? $target['id'] : '';
+            $label = is_string($target['label'] ?? null) ? mb_substr(trim($target['label']), 0, 120) : '';
+            $text = is_string($target['text'] ?? null) ? trim($target['text']) : '';
+            if ($id === '' || $label === '' || $text === '' || isset($selected[$id])) continue;
+            if (!preg_match('/^(summary|experience:\d+:bullet:\d+)$/', $id)) continue;
+            if (mb_strlen($text) > 4000) throw new \InvalidArgumentException('Each selected text item must be 4,000 characters or shorter.');
+            $selected[$id] = ['id' => $id, 'label' => $label, 'text' => $text];
         }
         if (!$selected) throw new \InvalidArgumentException('Select at least one summary or experience bullet to review.');
         if (trim($jobDescription) !== '' && mb_strlen($jobDescription) > 5000) throw new \InvalidArgumentException('Keep the optional job description under 5,000 characters.');
 
-        $review = (new AtsChecker())->inspect(CvRenderer::text($cv), $jobDescription);
-        $findings = array_map(static fn($finding) => [
-            'severity' => $finding['severity'],
-            'title' => $finding['title'],
-            'message' => $finding['message'],
-            'section' => $finding['section'],
-        ], $review['findings']);
+        $findings = [];
+        foreach (array_slice($localFindings, 0, 100) as $finding) {
+            if (!is_array($finding)) continue;
+            $severity = is_string($finding['severity'] ?? null) ? $finding['severity'] : '';
+            if (!in_array($severity, ['warning', 'suggestion', 'info'], true)) continue;
+            $findings[] = [
+                'severity' => $severity,
+                'title' => mb_substr(trim((string)($finding['title'] ?? '')), 0, 160),
+                'message' => mb_substr(trim((string)($finding['message'] ?? '')), 0, 500),
+                'section' => mb_substr(trim((string)($finding['section'] ?? '')), 0, 100),
+            ];
+        }
         $input = [
             'selected_text' => array_values($selected),
             'local_ats_findings' => $findings,

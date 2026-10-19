@@ -7,7 +7,7 @@ pageHeader('ATS CV Checker');
 <section class="page-intro compact-intro"><div><p class="eyebrow">CHECKER</p><h1>ATS-friendly checker</h1><p>Run a transparent, text-based review of a CV. Add a job description for term comparison.</p></div><a class="button button-light" href="<?= BASE_URL ?>?page=generator">Open generator →</a></section>
 <div class="checker-grid">
     <section class="panel checker-input">
-        <div class="panel-heading"><div><h2>CV text</h2><p>Paste text or extract it from a DOCX or PDF file.</p></div></div>
+        <div class="panel-heading"><div><h2>CV text</h2><p>Pasted text is checked in this browser. File extraction runs on the server.</p></div></div>
         <form id="checkForm">
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES) ?>">
             <label class="field-label" for="cvText">Paste CV text</label><textarea id="cvText" name="cv_text" rows="16" placeholder="Paste selectable text from your CV here…"></textarea>
@@ -16,7 +16,7 @@ pageHeader('ATS CV Checker');
             <label class="field-label" for="jobDescription">Target job description <span class="optional">optional</span></label><textarea id="jobDescription" name="job_description" rows="6" placeholder="Paste a job description to compare common terms…"></textarea>
             <button class="button button-primary full-button" type="submit">Check my CV</button>
         </form>
-        <p class="privacy-note">Uploaded files are extracted locally on this server and are not retained. A text-only check cannot confirm the visual layout of the source file.</p>
+        <p class="privacy-note">Pasted CV text and job descriptions stay in this browser during rule-based checks. If you choose a DOCX or PDF, the file and optional job description are uploaded to this server for extraction and comparison, then are not retained. AI actions send only the selected excerpt and job description after consent. A text-only check cannot confirm visual layout.</p>
     </section>
     <section class="panel results-panel"><div class="panel-heading"><div><h2>Review results</h2><p>Evidence and suggested next steps.</p></div></div><div id="checkResults" class="empty-results"><div class="empty-icon">✓</div><p>Your findings will appear here.</p></div></section>
 </div>

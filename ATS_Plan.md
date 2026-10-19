@@ -13,12 +13,12 @@ The product will have three main workflows:
 
 “Multiple Formats” is an export capability shared by the generator and converter. The proposed first set is **DOCX, text-based PDF, plain text, and HTML**. DOCX will be the primary editable format. The converter will accept DOCX and text-based PDF files. Scanned/image-only PDFs will be identified as unsupported in the first version; OCR can be considered separately.
 
-## Current project findings
+## Initial project findings
 
-- The project is a PHP application with no JavaScript build system. Environment loading and session startup live in `bootstrap.php`; sessions support CSRF tokens, import staging, and AI request limits. The login gate has since been removed at the user's request.
+- The project is a PHP application with no JavaScript build system. Environment loading and session startup live in `bootstrap.php`; sessions support authentication, CSRF tokens, import staging, and AI request limits. The shared-password gate was removed earlier and has now been re-enabled at the user's request.
 - The CV Maker is a single 1,170-line PHP file at `tools/cv-maker/index.php`. It currently has a live JavaScript preview, a separate PHP PDF renderer, saved drafts in MySQL, and five templates: Classic, Modern, Professional, Minimal, and Executive. The existing documentation says four templates, so it is out of date.
 - The PDF download uses mPDF. Drafts use a `draft_cvs` table with a JSON payload. The current database helper defaults to the `toolbox` database; keep that default until existing data has been backed up and a migration is planned.
-- The draft table has no per-user ownership. The app intentionally has no login or account system, so drafts are shared among everyone who can reach the instance.
+- The draft table has no per-user ownership. The shared-password gate protects the app, and all authenticated sessions continue to share the same draft pool.
 - The original toolbox also contained standalone encoders, calculators, generators, text utilities, a Markdown-to-PDF tool, and an OutlookSenderPro trial checker. Those are outside the new product scope.
 - The workspace has an empty `.git` directory and no usable Git history, so there is no Git diff/status available as a change baseline.
 
@@ -27,7 +27,7 @@ The product will have three main workflows:
 - Removed all standalone toolbox tools except the legacy CV Maker, including their QR encoder asset and the shared tool registry.
 - Removed the separate trial checker and the unauthenticated database-export endpoint.
 - Removed the old toolbox-wide manual testing guide and utility expansion plan. Kept `documentation.md` as legacy CV Maker reference material.
-- Initially changed the root route to require login and open the remaining CV Maker, and updated the visible default product name to ATS Checker. The login screen and access gate were later removed at the user's request; old login/logout URLs redirect to the app home.
+- Initially changed the root route to require login and open the remaining CV Maker, and updated the visible default product name to ATS Checker. The login screen and access gate were later removed at the user's request, then restored as shared-password authentication; the old `login.php` URL now leads to the sign-in page.
 - Updated Composer package name and description, while retaining the existing dependency lock and vendor tree so the current mPDF export remains available.
 
 The old CV Maker is retained as migration reference only. It will be replaced during implementation; the cleanup has not added the checker, converter, or new export formats.
@@ -42,7 +42,6 @@ The old CV Maker is retained as migration reference only. It will be replaced du
 - Make the default template a readable, single-column layout with standard section headings, selectable text, conventional bullets, and a predictable top-to-bottom reading order.
 - Avoid layout elements that can disrupt text extraction, such as sidebars, multi-column layouts, decorative icons, charts, and important information in headers or footers. An optional profile photo may appear at the top-right of the contact block when the source CV contains one; the rest of the CV stays single-column. Compact clickable LinkedIn and GitHub/portfolio icons are allowed when a valid URL is supplied; retain full URLs in DOCX and plain-text exports.
 - Keep a live preview and saved drafts. Render the preview and exports from the same data and formatting rules to prevent the current PHP/JavaScript template drift.
-- Keep the profile photo optional: when present, show a small portrait at the top-right of the contact block; when absent, leave no placeholder or reserved space.
 - Provide an on-demand text view extracted from the generated PDF. Show the extracted reading order and warn about incomplete numeric dates or expected section headings that are missing or out of order; explain that ATS products can parse the same document differently.
 
 ### Checker
@@ -70,7 +69,6 @@ The old CV Maker is retained as migration reference only. It will be replaced du
 ### AI assistance (opt-in)
 
 - Let users request a rewrite of selected summary or experience bullets for a target job description. Show the original and proposed text side by side and require the user to accept edits.
-- Keep profile photos local; do not send image data to AI providers.
 - Add a review-first ATS autofixer that runs deterministic checks on the current structured CV, sends only user-selected summary/bullet text and finding titles/messages after consent, and applies individual suggestions to the editor only. Never auto-save fixes.
 - Suggest relevant skills and job-description terms based on evidence in the CV. Label missing terms as gaps to review; never present them as skills the user has unless the user confirms them.
 - Explain checker findings in plain language and suggest edits. Keep the ATS readability checks and any numeric score deterministic and separate from AI advice.
@@ -82,18 +80,18 @@ The old CV Maker is retained as migration reference only. It will be replaced du
 
 ## Proposed technical structure
 
-Keep the existing PHP hosting model and sessions for CSRF, import staging, and AI limits while separating the CV logic from page markup. Do not require a login:
+Keep the existing PHP hosting model and sessions for CSRF, AI limits, and authentication while separating the CV logic from page markup. Do not stage CV contents in a PHP session. Protect application pages and API actions with one shared password hash from server-side environment configuration. Saved drafts remain a shared pool for authenticated sessions; do not add individual accounts or per-user ownership:
 
 - `src/Cv/` — canonical model, validation, normalization, and legacy draft conversion.
 - `src/Ats/` — deterministic checker rules and finding format.
 - `src/Import/` — DOCX/PDF extraction and mapping into the canonical model.
-- `src/Export/` — DOCX, PDF, plain-text, and HTML exporters.
+- `assets/js/cv-renderer.js` — browser preview and DOCX/TXT/HTML output plus print-to-PDF. PHP must not receive a full CV for preview or export.
 - `src/Ai/` — provider interface, provider-specific adapters, prompt construction, response validation, and usage controls.
 - `pages/` — generator, checker, converter, and shared navigation screens.
 - `assets/css/` and `assets/js/` — shared responsive UI and editor interactions.
 - `includes/` — bootstrap, database access, and request security.
 
-Use the existing mPDF installation for PDF output. Before adding DOCX/PDF parsing libraries, check PHP version and extension availability on the intended host, select maintained local libraries, and update `composer.json` and `composer.lock` together. Parsedown, TCPDF, and PHP_CodeSniffer are still listed in the existing Composer files even though their app features were removed; Composer could not reach Packagist in this environment, so they were left intact rather than editing the lock file by hand.
+The existing application retains mPDF in Composer, but current PDF output uses the browser print dialog. Before adding DOCX/PDF parsing libraries, check PHP version and extension availability on the intended host, select maintained local libraries, and update `composer.json` and `composer.lock` together. Parsedown, TCPDF, and PHP_CodeSniffer are still listed in the existing Composer files even though their app features were removed; Composer could not reach Packagist in this environment, so they were left intact rather than editing the lock file by hand.
 
 ## Implementation sequence
 
@@ -109,7 +107,7 @@ Use the existing mPDF installation for PDF output. Before adding DOCX/PDF parsin
 - Define and document the canonical CV schema, including a version field.
 - Add a conversion path from existing `draft_cvs.cv_data` records so old drafts remain usable.
 - Separate request handling, data validation, persistence, and rendering.
-- Keep CSRF protection and safe draft operations. The app has no login by design, and all reachable users share the draft pool; user accounts and per-user ownership are out of scope unless requested.
+- Keep CSRF protection and safe draft operations. Require the shared-password session gate for pages and API actions; the draft pool remains shared after sign-in. User accounts and per-user ownership are out of scope unless requested.
 
 ### Phase 2 — ATS-first generator
 
@@ -152,10 +150,9 @@ Use the existing mPDF installation for PDF output. Before adding DOCX/PDF parsin
 - Initial output formats are **DOCX, PDF, TXT, and HTML**; initial import formats are **DOCX and text-based PDF**.
 - In visual HTML/PDF output, show valid LinkedIn and GitHub links as compact clickable icons; keep full social URLs in DOCX and TXT output.
 - Profile photos are optional. The converter stages a likely portrait found in embedded PDF/DOCX images for user review, ignores other graphics, and leaves the photo field empty when none is found. Users can replace or remove a staged photo in the generator.
-- The photo is normalized to a small JPEG and stored in the existing `cv_data` JSON payload. Preview, PDF, and DOCX place it to the right of contact text; TXT omits it. No database schema change is needed.
 - AI assistance is optional and user-initiated. The ATS autofixer may propose rewrites only for selected summary/bullet text; each change requires user review before it reaches the editor, and the user saves manually. AI cannot add unverified qualifications, silently change a saved CV, or provide an opaque ATS pass/fail score.
 - Image-only PDF OCR, automatic keyword insertion, user accounts, and general toolbox utilities are out of the first version's scope.
-- The shared-password login screen and its access gate were removed at the user's request. The legacy `login.php` and `logout.php` URLs redirect to the app home.
+- At the user's request, shared-password authentication is enabled again. It uses `APP_PASSWORD_HASH`, protects application pages and API actions, and does not add user accounts or change draft ownership/schema.
 - Initial planning recommended retaining `toolbox` until a migration was planned. At the user's direction, the local database is now `cv_maker`; its schema is initialized, no draft rows were copied from `toolbox`, and `toolbox` was left untouched.
 
 ## Implementation status
@@ -163,11 +160,22 @@ Use the existing mPDF installation for PDF output. Before adding DOCX/PDF parsin
 **Code implementation started:** 18 October 2026.
 
 - Foundation and compatibility: implemented. A versioned canonical CV schema, legacy JSON adapter, shared renderer, CSRF helpers, and prepared-statement draft repository are in place. At the user's direction, the local database is `cv_maker`; its `draft_cvs` schema was initialized. No draft rows were copied from `toolbox`, which was left untouched.
-- Generator: implemented. The app now has repeatable editable sections, a server-rendered preview, draft save/load/delete, an ATS-first one-column template, and an on-demand generated-PDF text check with date-fragment and section-heading warnings. Experience and education are sorted newest-first when dates can be read.
-- Checker: implemented. Rule-based findings and heuristic scoring cover common headings, contact details, date styles and incomplete numeric date fragments, bullets, measurable results, possible extraction artifacts, and optional job-description terms.
-- Converter: implemented. DOCX and selectable-text PDF extraction are local, size-limited, and temporary-file based. Likely embedded portraits are selected by image dimensions and shape, resized/cropped locally, and staged for review; other graphics and CVs without photos leave the photo field empty. Common experience, education, project, certification, and language content is mapped into editable fields where possible; less common headings remain in editable custom sections. Optional AI mapping uses an editable excerpt and requires a deliberate review action before staging the suggested CV; the photo stays local.
+- Generator: implemented. Repeatable editor sections, a browser-rendered preview, encrypted draft save/load/delete, an ATS-first one-column template, and a local text-order check with date-fragment and section-heading warnings are in place. The local text-order check is not a PDF extraction check.
+- Checker: implemented. Pasted text is checked in the browser; file uploads still send DOCX/PDF to PHP for extraction. Rule-based findings and heuristic scoring cover common headings, contact details, date styles and incomplete numeric date fragments, bullets, measurable results, possible extraction artifacts, and optional job-description terms.
+- Converter: implemented. DOCX and selectable-text PDF extraction run on PHP with size limits and temporary files. PDF extraction prefers Poppler `pdftotext` and falls back to the Composer PHP parser when the utility is unavailable or cannot read a file. PDF profile-photo extraction remains optional and uses Poppler `pdfimages` when configured. Extracted CV data is returned to the browser and transferred to the generator without PHP session staging. Optional AI mapping uses an editable excerpt and requires a deliberate review action.
 - Checker: findings include a named affected area and concise evidence text alongside severity and guidance.
-- Exports: implemented in code for DOCX, text-based PDF, TXT, and HTML using the canonical CV renderer. Optional photos appear at the top-right of visual, PDF, and DOCX output; text exports omit them.
-- AI: implemented in code for opt-in Gemini and Agnes summary and experience-bullet rewrites, a review-first ATS autofixer, job-term suggestions, checker explanations, and import mapping. The autofixer runs local rule checks, sends only selected summary/bullet text and finding titles/messages, shows before/after text, and applies a suggestion to the unsaved editor only after the user clicks its button. It does not invent missing facts or save drafts. Other requests are server-side, use session limits, and require user review. Import mapping uses an editable excerpt of up to 16 KB and stages its proposed CV only after the user chooses to review it in the generator. AI controls are hidden when the selected provider key is missing, and server routes reject AI requests in that state. Gemini requests set `store: false` and can fall through configured models after overload/rate-limit/model-availability errors; Agnes requests use the documented OpenAI-compatible Chat Completions API and send no storage preference. `AI_PROVIDER` selects the configured adapter. Other providers remain out of scope until their APIs are confirmed.
-- Local configuration: `.env.example` documents the app, database, and supported AI settings. Local provider credentials remain only in the ignored `.env` and are not stored in source control. The Agnes model field is intentionally blank so the owner can use a model ID enabled for their account. `APP_PASSWORD_HASH` is no longer required because the app has no login screen.
-- The supplied PDF's embedded portrait was manually extracted and visually checked in the generated PDF header. DOCX image packaging and import round-trip were checked, and no-photo output was checked to contain no image. Full browser walkthroughs, production-host checks, and deployment have not been completed. Generic Gemini connectivity probes confirmed responses from Gemini 3.6 Flash, 3.5 Flash-Lite, and 2.5 Flash; 3.8 Flash was temporarily unavailable during probing. The `cv_maker` schema setup was applied successfully; no draft rows were copied from `toolbox`, which remains untouched.
+- Exports: DOCX, TXT, and HTML are generated in the browser; PDF uses the browser print dialog.
+- AI: implemented in code for opt-in Gemini and Agnes summary and experience-bullet rewrites, a review-first ATS autofixer, job-term suggestions, checker explanations, and import mapping. The autofixer runs local rule checks and sends only selected text and local finding titles/messages after consent. Suggestions reach the unsaved editor only after review and are not saved automatically. Other requests are server-side, use session limits, and require user review. Import mapping uses an editable excerpt of up to 16 KB and transfers its proposed CV directly between browser tabs after the user chooses to review it. AI controls are hidden when the selected provider key is missing, and server routes reject AI requests in that state. Gemini requests set `store: false` and can fall through configured models after overload/rate-limit/model-availability errors; Agnes requests use the documented OpenAI-compatible Chat Completions API and send no storage preference. `AI_PROVIDER` selects the configured adapter. Other providers remain out of scope until their APIs are confirmed.
+- Local configuration: `.env.example` documents the app, database, supported AI settings, shared-password hash, and FTP variable names without credentials. Local provider and FTP credentials remain in the ignored `.env`. The Agnes model field is intentionally blank so the owner can use a model ID enabled for their account. Login fails closed until a valid `APP_PASSWORD_HASH` is configured.
+- FTP deployment: `deploy.sh` supports read-only comparison, full upload, and incremental uploads. It excludes `.env`, keys, and database dumps. The previously configured target corresponds to public `/ftp-tools/`, so it targets `../../` to reach that folder's parent and prints the resulting FTP working directory. If the FTP account is jailed there, the host must change its home directory to allow access to the parent. No FTP connection or upload was performed in this implementation pass.
+- Acceptance, production-host checks, and browser walkthroughs have not been completed in this implementation pass. Generic Gemini connectivity probes confirmed responses from Gemini 3.6 Flash, 3.5 Flash-Lite, and 2.5 Flash; 3.8 Flash was temporarily unavailable during probing. The `cv_maker` schema setup was applied successfully; no draft rows were copied from `toolbox`, which remains untouched.
+
+### Encrypted draft vault update — 20 October 2026
+
+- Browser-side vault crypto and encrypted draft storage are implemented in the local code. A separate vault passphrase wraps a random vault key; each draft has a random AES-GCM data key, and draft names are encrypted too. The app sign-in password is not used as an encryption key.
+- Generator preview, text-order review, DOCX/TXT/HTML output, and browser print-to-PDF are client-side. Pasted-text checker rules run in the browser. The AI autofixer sends selected text and local findings only after the existing consent action.
+- DOCX/PDF converter uploads and checker file uploads are still processed by PHP; the UI now states that the server can read those files during extraction. AI actions remain explicit plaintext disclosures to PHP and the selected provider.
+- `migrations/20261020_encrypted_cv_v1.sql` adds encrypted columns and vault metadata without changing existing rows. It has **not** been applied. No database backup, schema migration, production change, or legacy plaintext cleanup was run during this implementation.
+- `deploy.sh` now uploads only versioned SQL files from `migrations/` and checks/applies pending migrations through a token-protected HTTPS endpoint after upload. Configure the same `DEPLOY_MIGRATION_TOKEN` in local and server `.env`, and set local `DEPLOY_MIGRATION_URL` to the public HTTPS URL. The script requires a `BACKUP VERIFIED` prompt (or explicit `--confirm-db-backup`) before applying pending SQL; `--no-migrations` skips SQL and `--check` never runs it. It still requires a later manual verified backup before plaintext cleanup.
+- After deployment, take and verify an offline database backup before allowing the script to apply the SQL migration. Then create the vault, save its recovery key offline, encrypt and verify every existing draft, take a fresh verified backup, and confirm removal of plaintext names and JSON. Backups, binary logs, replicas, or snapshots may retain plaintext until their retention period ends or they are securely removed.
+- Database-only protection is active for a draft only after it has an encrypted envelope. Protection against malicious JavaScript served by a compromised web origin is not possible while the user unlocks the vault on that origin.

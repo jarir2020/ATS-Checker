@@ -31,14 +31,26 @@ final class CvImporter
 
     public function extractPdfText(string $path): string
     {
-        if (!function_exists('proc_open')) throw new \RuntimeException('PDF text extraction is unavailable on this server.');
         $binary = trim((string)($_ENV['PDFTOTEXT_BIN'] ?? ''));
         if ($binary === '') {
             foreach (['/usr/bin/pdftotext', '/usr/local/bin/pdftotext', '/opt/homebrew/bin/pdftotext'] as $candidate) {
                 if (is_file($candidate) && is_executable($candidate)) { $binary = $candidate; break; }
             }
         }
-        if ($binary === '' || !is_file($binary) || !is_executable($binary)) throw new \RuntimeException('PDF text extraction requires the pdftotext utility on the server.');
+
+        if (function_exists('proc_open') && $binary !== '' && is_file($binary) && is_executable($binary)) {
+            try {
+                return $this->extractPdfTextWithBinary($path, $binary);
+            } catch (\Throwable $exception) {
+                // Fall back to the bundled PHP parser if Poppler cannot process this file.
+            }
+        }
+
+        return $this->extractPdfTextWithPhpParser($path);
+    }
+
+    private function extractPdfTextWithBinary(string $path, string $binary): string
+    {
         $out = tempnam(sys_get_temp_dir(), 'ats-pdf-');
         $log = tempnam(sys_get_temp_dir(), 'ats-pdf-log-');
         if ($out === false || $log === false) { if ($out !== false) @unlink($out); if ($log !== false) @unlink($log); throw new \RuntimeException('Could not prepare temporary PDF output.'); }
@@ -64,6 +76,28 @@ final class CvImporter
             @unlink($out);
             @unlink($log);
         }
+    }
+
+    private function extractPdfTextWithPhpParser(string $path): string
+    {
+        if (!class_exists(\Smalot\PdfParser\Parser::class)) {
+            throw new \RuntimeException('PDF text extraction is unavailable. Install pdftotext or deploy the Composer dependencies.');
+        }
+
+        try {
+            $config = new \Smalot\PdfParser\Config();
+            $config->setRetainImageContent(false);
+            $config->setDecodeMemoryLimit(67108864);
+            $config->setMaxNestingDepth(1000);
+            $parser = new \Smalot\PdfParser\Parser([], $config);
+            $pdf = $parser->parseFile($path);
+            $text = trim($pdf->getText());
+        } catch (\Throwable $exception) {
+            throw new \RuntimeException('The PDF could not be read. It may be encrypted, damaged, or unsupported.');
+        }
+
+        if ($text === '') throw new \RuntimeException('No selectable text was found. Image-only PDFs are not supported in this version.');
+        return mb_substr($text, 0, 200000);
     }
 
     private function extractDocx(string $path): string

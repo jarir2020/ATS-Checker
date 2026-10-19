@@ -4,5 +4,13 @@
 keys.txt
 vendor/
 db_sql/
+*.sql
+!migrations/
+!migrations/*.sql
+*.dump
+*.sqlite*
+*.db
 *.log
+.deploy-state
+.deploy-state.*
 .well-known/
