@@ -5,10 +5,10 @@
 ## Current capabilities
 
 - No login screen or user accounts; all visitors share access to this instance's saved drafts.
-- Single-column CV generator with a common PHP renderer for preview and exports.
+- Single-column CV generator with a common PHP renderer for preview and exports; an optional profile photo can be extracted, edited, and shown in visual/PDF/DOCX output.
 - Saved drafts in the existing `draft_cvs` table, with compatibility for legacy JSON records.
 - Explainable text-based ATS checks with affected-area evidence and optional job-description term comparison.
-- Local import of DOCX and selectable-text PDF files. Image-only PDF OCR is not supported.
+- Local import of DOCX and selectable-text PDF files, including likely embedded profile photos when GD is available (PDF photo detection also uses `pdfimages`). Image-only PDF OCR is not supported.
 - DOCX, PDF, plain text, and HTML exports.
 - Optional user-initiated Gemini or Agnes AI suggestions, including suggested import mapping. AI controls are hidden when the selected provider key is missing, and the server rejects AI requests in that state. Checker excerpts redact email, phone, and LinkedIn/GitHub URLs before sending; import excerpts can be edited; suggestions require user review.
 
@@ -41,4 +41,5 @@
 - Store credentials and provider keys in server-side environment configuration only.
 - AI requests are opt-in; set `AI_PROVIDER=gemini` or `AI_PROVIDER=agnes`. Gemini requests use `store: false`; Agnes requests do not include a storage option. No AI provider is required for the core tools.
 - Uploaded source files are processed locally and not retained by the application after the request.
+- Optional profile photos are stored with saved CV JSON and are not included in AI requests.
 - The ATS score is a heuristic review score, not a hiring or ATS compatibility prediction.

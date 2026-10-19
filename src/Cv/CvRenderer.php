@@ -15,10 +15,10 @@ final class CvRenderer
         $cv['education'] = self::recentFirst($cv['education'], 'year', 'year');
         $p = $cv['personal'];
         $html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . self::e($p['name'] ?: 'CV') . '</title><style>';
-        $html .= 'body{font-family:Arial,Helvetica,sans-serif;color:#171717;font-size:11pt;line-height:1.45;margin:0 auto;padding:28px;max-width:780px}h1{font-size:22pt;margin:0 0 2px}h2{font-size:12pt;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #444;padding-bottom:3px;margin:18px 0 8px}h3{font-size:11pt;margin:0 0 2px}p{margin:3px 0 7px}.meta,.subtle{color:#333}.entry{margin:0 0 9px}.date,.date-token{font-weight:normal;white-space:nowrap}.cv-list{padding-left:18px;margin:4px 0}.contacts{margin:4px 0 10px;overflow-wrap:anywhere}.contact-divider{display:inline-block;margin:0 4px;color:#666}.social-links{display:inline-block;white-space:nowrap;vertical-align:middle}.social-link{display:inline-block;width:18px;height:18px;text-align:center;text-decoration:none;vertical-align:middle;margin:0 1px}.social-mark-svg{display:inline-block;vertical-align:middle}.social-mark-svg svg{display:block;width:17px;height:17px}.small{font-size:10pt}@media print{body{max-width:none;padding:0}}';
+        $html .= 'body{font-family:Arial,Helvetica,sans-serif;color:#171717;font-size:11pt;line-height:1.45;margin:0 auto;padding:28px;max-width:780px}h1{font-size:22pt;margin:0 0 2px}h2{font-size:12pt;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #444;padding-bottom:3px;margin:18px 0 8px}h3{font-size:11pt;margin:0 0 2px}p{margin:3px 0 7px}.meta,.subtle{color:#333}.entry{margin:0 0 9px}.date,.date-token{font-weight:normal;white-space:nowrap}.cv-list{padding-left:18px;margin:4px 0}.contacts{margin:4px 0 10px;overflow-wrap:anywhere}.contact-divider{display:inline-block;margin:0 4px;color:#666}.social-links{display:inline-block;white-space:nowrap;vertical-align:middle}.social-link{display:inline-block;width:18px;height:18px;text-align:center;text-decoration:none;vertical-align:middle;margin:0 1px}.social-mark-svg{display:inline-block;vertical-align:middle}.social-mark-svg svg{display:block;width:17px;height:17px}.small{font-size:10pt}.cv-header-table{width:100%;border-collapse:collapse;margin:0 0 12px}.cv-header-table td{padding:0;vertical-align:top}.cv-header-photo-cell{width:105px;text-align:right}.profile-photo{display:block;width:90px;height:120px;object-fit:cover;border:0;border-radius:3px}@media print{body{max-width:none;padding:0}}';
         $html .= '</style></head><body>';
-        $html .= '<h1>' . self::e($p['name']) . '</h1>';
-        if ($p['title'] !== '') $html .= '<p class="subtle">' . self::e($p['title']) . '</p>';
+        $headerHtml = '<div class="cv-header-copy"><h1>' . self::e($p['name']) . '</h1>';
+        if ($p['title'] !== '') $headerHtml .= '<p class="subtle">' . self::e($p['title']) . '</p>';
         $contactText = array_values(array_filter([$p['email'], $p['phone'], $p['location']], static fn($value) => trim($value) !== ''));
         $contactItems = array_map([self::class, 'e'], $contactText);
         $socialLinks = array_filter([
@@ -30,7 +30,13 @@ final class CvRenderer
             if ($contactHtml !== '') $contactHtml .= ' <span class="contact-divider" aria-hidden="true">|</span> ';
             $contactHtml .= '<span class="social-links">' . implode(' &nbsp; ', $socialLinks) . '</span>';
         }
-        if ($contactHtml !== '') $html .= '<p class="contacts small">' . $contactHtml . '</p>';
+        if ($contactHtml !== '') $headerHtml .= '<p class="contacts small">' . $contactHtml . '</p>';
+        $headerHtml .= '</div>';
+        if ($p['photo'] !== '') {
+            $html .= '<table class="cv-header-table" role="presentation"><tbody><tr><td>' . $headerHtml . '</td><td class="cv-header-photo-cell"><img class="profile-photo" src="' . self::e($p['photo']) . '" alt="Profile photo"></td></tr></tbody></table>';
+        } else {
+            $html .= $headerHtml;
+        }
         if ($cv['enabled_sections']['summary'] && $cv['summary'] !== '') $html .= self::section('Summary', '<p>' . nl2br(self::e($cv['summary'])) . '</p>');
         if ($cv['enabled_sections']['skills'] && $cv['skills']) {
             $body = '';

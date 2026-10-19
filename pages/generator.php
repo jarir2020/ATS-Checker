@@ -18,7 +18,7 @@ pageHeader('ATS CV Generator');
         <button class="button button-primary" type="button" id="exportCv">Export</button>
     </div>
 </section>
-<?php if ($isImport): ?><div class="notice notice-success">Imported text is ready for review. Check every field before exporting.</div><?php endif; ?>
+<?php if ($isImport): ?><div class="notice notice-success">Imported CV content is ready for review. Any likely profile photo appears in the header; check every field before exporting.</div><?php endif; ?>
 <div class="generator-layout">
     <section class="editor-panel panel">
         <div class="panel-heading"><div><h2>CV details</h2><p>Your content stays editable here.</p></div><span class="status-dot">ATS-first layout</span></div>

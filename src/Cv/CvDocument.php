@@ -7,12 +7,13 @@ final class CvDocument
 
     private const ARRAY_LIMIT = 80;
     private const TEXT_LIMIT = 20000;
+    private const PHOTO_MAX_BYTES = 400000;
 
     public static function empty(): array
     {
         return [
             'schema_version' => self::SCHEMA_VERSION,
-            'personal' => ['name' => '', 'title' => '', 'phone' => '', 'email' => '', 'location' => '', 'linkedin' => '', 'github' => ''],
+            'personal' => ['name' => '', 'title' => '', 'phone' => '', 'email' => '', 'location' => '', 'linkedin' => '', 'github' => '', 'photo' => ''],
             'enabled_sections' => ['summary' => true, 'skills' => true, 'experience' => true, 'education' => true, 'projects' => true, 'certifications' => true, 'languages' => true, 'custom_sections' => true],
             'summary' => '', 'skills' => [], 'experience' => [], 'education' => [],
             'projects' => [], 'certifications' => [], 'languages' => [], 'custom_sections' => [],
@@ -65,7 +66,7 @@ final class CvDocument
         $out = self::empty();
         $p = is_array($in['personal'] ?? null) ? $in['personal'] : [];
         foreach ($out['personal'] as $key => $_) {
-            $out['personal'][$key] = self::text($p[$key] ?? '');
+            $out['personal'][$key] = $key === 'photo' ? self::photo($p[$key] ?? '') : self::text($p[$key] ?? '');
         }
         $enabled = is_array($in['enabled_sections'] ?? null) ? $in['enabled_sections'] : [];
         foreach ($out['enabled_sections'] as $key => $_) {
@@ -115,7 +116,7 @@ final class CvDocument
             'title' => self::text($in['cv_role'] ?? $in['role'] ?? ''),
             'phone' => self::text($in['phone'] ?? ''), 'email' => self::text($in['email'] ?? ''),
             'location' => self::text($in['location'] ?? ''), 'linkedin' => self::text($in['linkedin'] ?? ''),
-            'github' => self::text($in['github'] ?? ''),
+            'github' => self::text($in['github'] ?? ''), 'photo' => self::photo($in['photo'] ?? ''),
         ];
         $out['summary'] = self::text($in['summary'] ?? '');
         self::legacyRows($out, $in, 'skills', ['name' => 'skill_label', 'details' => 'skill_value']);
@@ -164,6 +165,22 @@ final class CvDocument
     private static function text($value): string
     {
         if (!is_scalar($value)) return '';
-        return mb_substr(trim(str_replace("\0", '', (string)$value)), 0, self::TEXT_LIMIT);
+        $value = str_replace(["\0", "\f"], ['', "\n"], (string)$value);
+        $value = preg_replace('/[\x01-\x08\x0B\x0E-\x1F]/', ' ', $value) ?? $value;
+        return mb_substr(trim($value), 0, self::TEXT_LIMIT);
+    }
+
+    private static function photo($value): string
+    {
+        if (!is_string($value) || strlen($value) > 550000 || !function_exists('getimagesizefromstring')) return '';
+        if (!preg_match('~^data:image/jpeg;base64,([A-Za-z0-9+/]+={0,2})$~D', $value, $match)) return '';
+        $bytes = base64_decode($match[1], true);
+        if (!is_string($bytes) || strlen($bytes) < 4 || strlen($bytes) > self::PHOTO_MAX_BYTES) return '';
+        $image = @getimagesizefromstring($bytes);
+        if (!is_array($image) || ($image[2] ?? 0) !== IMAGETYPE_JPEG) return '';
+        $width = (int)($image[0] ?? 0);
+        $height = (int)($image[1] ?? 0);
+        if ($width < 1 || $height < 1 || $width > 512 || $height > 512 || $width * $height > 262144) return '';
+        return 'data:image/jpeg;base64,' . base64_encode($bytes);
     }
 }

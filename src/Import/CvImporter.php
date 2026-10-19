@@ -7,7 +7,7 @@ final class CvImporter
 {
     public const MAX_BYTES = 10485760;
 
-    public function extractUpload(array $upload): array
+    public function extractUpload(array $upload, bool $includePhoto = false): array
     {
         if (($upload['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             throw new \RuntimeException($this->uploadError((int)($upload['error'] ?? UPLOAD_ERR_NO_FILE)));
@@ -23,8 +23,10 @@ final class CvImporter
             throw new \RuntimeException('This file does not appear to be a DOCX document.');
         }
         if ($extension === 'pdf' && $mime !== 'application/pdf') throw new \RuntimeException('This file does not appear to be a PDF document.');
-        if ($extension === 'pdf') return ['text' => $this->extractPdfText($tmp), 'format' => 'PDF'];
-        return ['text' => $this->extractDocx($tmp), 'format' => 'DOCX'];
+        if ($extension === 'pdf') {
+            return ['text' => $this->extractPdfText($tmp), 'format' => 'PDF', 'photo' => $includePhoto ? $this->extractPdfPhoto($tmp) : ''];
+        }
+        return ['text' => $this->extractDocx($tmp), 'format' => 'DOCX', 'photo' => $includePhoto ? $this->extractDocxPhoto($tmp) : ''];
     }
 
     public function extractPdfText(string $path): string
@@ -101,9 +103,10 @@ final class CvImporter
         }
     }
 
-    public function mapToCv(string $text): array
+    public function mapToCv(string $text, string $photo = ''): array
     {
         $cv = CvDocument::empty();
+        $cv['personal']['photo'] = $photo;
         $lines = array_map('trim', preg_split('/\r\n|\r|\n/', $text) ?: []);
         $firstIndex = null;
         foreach ($lines as $index => $line) if ($line !== '') { $firstIndex = $index; break; }
@@ -165,6 +168,9 @@ final class CvImporter
         }
 
         $notes = ['Text was extracted locally and mapped into editable fields where possible. Review names, dates, entry boundaries, and every imported detail before saving or exporting.'];
+        $notes[] = $cv['personal']['photo'] !== ''
+            ? 'A likely profile photo was detected and added to the contact block. Review it in the generator; you can replace or remove it.'
+            : 'No likely profile photo was detected, so the photo field was left empty.';
         if (count($lines) > 1 && ($cv['personal']['title'] === '' || $cv['personal']['email'] === '' || $cv['personal']['phone'] === '')) $notes[] = 'Name, title, or contact details may need manual correction.';
         if ($cv['custom_sections']) $notes[] = 'Awards, publications, references, or other less common sections remain editable under Additional sections.';
         return ['cv' => CvDocument::normalize($cv), 'notes' => $notes, 'text' => $text];
@@ -456,6 +462,186 @@ final class CvImporter
     private static function stripBullet(string $line): string
     {
         return trim(preg_replace('/^(?:[•●▪◦*\-]|\d+[.)])\s+/u', '', $line) ?? $line);
+    }
+
+    private function extractPdfPhoto(string $path): string
+    {
+        if (!function_exists('proc_open') || !function_exists('imagecreatefromstring') || !function_exists('getimagesizefromstring')) return '';
+        $binary = $this->findPdfImagesBinary();
+        if ($binary === '') return '';
+        $directory = '';
+        try {
+            $listed = $this->runBinary([$binary, '-list', $path], 12);
+            if ($listed['exit'] !== 0) return '';
+            $pages = [];
+            foreach (preg_split('/\r\n|\r|\n/', $listed['stdout']) ?: [] as $line) {
+                if (!preg_match('/^\s*(\d+)\s+\d+\s+image\s+(\d+)\s+(\d+)\b/i', $line, $match)) continue;
+                $score = self::photoCandidateScore((int)$match[2], (int)$match[3]);
+                if ($score === null) continue;
+                $page = (int)$match[1];
+                $pages[$page] = max($pages[$page] ?? 0, $score);
+            }
+            if (!$pages) return '';
+            arsort($pages, SORT_NUMERIC);
+            $page = (int)array_key_first($pages);
+            $directory = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'ats-photo-' . bin2hex(random_bytes(8));
+            if (!mkdir($directory, 0700)) return '';
+            $extracted = $this->runBinary([$binary, '-all', '-f', (string)$page, '-l', (string)$page, $path, $directory . DIRECTORY_SEPARATOR . 'image'], 20);
+            if ($extracted['exit'] !== 0) return '';
+            $files = glob($directory . DIRECTORY_SEPARATOR . 'image-*') ?: [];
+            $candidates = [];
+            $totalBytes = 0;
+            foreach (array_slice($files, 0, 80) as $file) {
+                $size = @filesize($file);
+                if (!is_int($size) || $size < 1 || $size > 6000000) continue;
+                $totalBytes += $size;
+                if ($totalBytes > 20000000) break;
+                $imageInfo = @getimagesize($file);
+                if (!is_array($imageInfo)) continue;
+                $score = self::photoCandidateScore((int)$imageInfo[0], (int)$imageInfo[1]);
+                if ($score !== null) $candidates[] = ['path' => $file, 'score' => $score];
+            }
+            usort($candidates, static fn($a, $b) => $b['score'] <=> $a['score']);
+            foreach (array_slice($candidates, 0, 5) as $candidate) {
+                $bytes = @file_get_contents($candidate['path']);
+                if (is_string($bytes)) {
+                    $photo = $this->makeProfilePhoto($bytes);
+                    if ($photo !== '') return $photo;
+                }
+            }
+        } catch (\Throwable $error) {
+            return '';
+        } finally {
+            if ($directory !== '' && is_dir($directory)) {
+                foreach (glob($directory . DIRECTORY_SEPARATOR . '*') ?: [] as $file) if (is_file($file)) @unlink($file);
+                @rmdir($directory);
+            }
+        }
+        return '';
+    }
+
+    private function extractDocxPhoto(string $path): string
+    {
+        if (!class_exists(\ZipArchive::class) || !function_exists('imagecreatefromstring') || !function_exists('getimagesizefromstring')) return '';
+        $zip = new \ZipArchive();
+        if ($zip->open($path) !== true) return '';
+        try {
+            $candidates = [];
+            $totalBytes = 0;
+            $count = min((int)$zip->numFiles, 2000);
+            for ($index = 0; $index < $count && count($candidates) < 60; $index++) {
+                $name = $zip->getNameIndex($index);
+                if (!is_string($name) || strpos($name, 'word/media/') !== 0 || strpos($name, '..') !== false) continue;
+                $stat = $zip->statIndex($index);
+                $size = (int)($stat['size'] ?? 0);
+                if ($size < 1 || $size > 6000000) continue;
+                $totalBytes += $size;
+                if ($totalBytes > 20000000) break;
+                $bytes = $zip->getFromIndex($index);
+                if (!is_string($bytes)) continue;
+                $imageInfo = @getimagesizefromstring($bytes);
+                if (!is_array($imageInfo)) continue;
+                $score = self::photoCandidateScore((int)$imageInfo[0], (int)$imageInfo[1]);
+                if ($score !== null) $candidates[] = ['bytes' => $bytes, 'score' => $score];
+            }
+            usort($candidates, static fn($a, $b) => $b['score'] <=> $a['score']);
+            foreach (array_slice($candidates, 0, 8) as $candidate) {
+                $photo = $this->makeProfilePhoto($candidate['bytes']);
+                if ($photo !== '') return $photo;
+            }
+        } catch (\Throwable $error) {
+            return '';
+        } finally {
+            $zip->close();
+        }
+        return '';
+    }
+
+    private static function photoCandidateScore(int $width, int $height): ?float
+    {
+        if ($width < 120 || $height < 120 || $width * $height < 16000 || $width * $height > 20000000 || $width > 10000 || $height > 10000) return null;
+        $ratio = $width / $height;
+        if ($ratio < 0.48 || $ratio > 1.5) return null;
+        return log(min($width * $height, 160000)) - abs(log($ratio / 0.75)) * 2.2;
+    }
+
+    private function makeProfilePhoto(string $bytes): string
+    {
+        if (!function_exists('imagecreatefromstring') || !function_exists('imagejpeg') || !function_exists('getimagesizefromstring')) return '';
+        $info = @getimagesizefromstring($bytes);
+        if (!is_array($info)) return '';
+        $width = (int)($info[0] ?? 0);
+        $height = (int)($info[1] ?? 0);
+        if ($width < 32 || $height < 32 || $width > 6000 || $height > 6000 || $width * $height > 20000000) return '';
+        $source = @imagecreatefromstring($bytes);
+        if ($source === false) return '';
+        $targetRatio = 0.75;
+        $cropX = 0; $cropY = 0; $cropWidth = $width; $cropHeight = $height;
+        if ($width / $height > $targetRatio) {
+            $cropWidth = max(1, (int)floor($height * $targetRatio));
+            $cropX = (int)floor(($width - $cropWidth) / 2);
+        } else {
+            $cropHeight = max(1, (int)floor($width / $targetRatio));
+            $cropY = (int)floor(($height - $cropHeight) / 2);
+        }
+        $scale = min(384 / $cropWidth, 512 / $cropHeight, 1);
+        $targetWidth = max(1, (int)round($cropWidth * $scale));
+        $targetHeight = max(1, (int)round($cropHeight * $scale));
+        $target = imagecreatetruecolor($targetWidth, $targetHeight);
+        if ($target === false) { imagedestroy($source); return ''; }
+        $white = imagecolorallocate($target, 255, 255, 255);
+        imagefill($target, 0, 0, $white);
+        imagecopyresampled($target, $source, 0, 0, $cropX, $cropY, $targetWidth, $targetHeight, $cropWidth, $cropHeight);
+        imagedestroy($source);
+        $photo = '';
+        foreach ([82, 72, 62] as $quality) {
+            ob_start();
+            $written = imagejpeg($target, null, $quality);
+            $jpeg = ob_get_clean();
+            if ($written && is_string($jpeg) && strlen($jpeg) <= 400000) { $photo = 'data:image/jpeg;base64,' . base64_encode($jpeg); break; }
+        }
+        imagedestroy($target);
+        return $photo;
+    }
+
+    private function findPdfImagesBinary(): string
+    {
+        $configured = trim((string)($_ENV['PDFIMAGES_BIN'] ?? ''));
+        if ($configured !== '' && is_file($configured) && is_executable($configured)) return $configured;
+        foreach (['/usr/bin/pdfimages', '/usr/local/bin/pdfimages', '/opt/homebrew/bin/pdfimages'] as $candidate) {
+            if (is_file($candidate) && is_executable($candidate)) return $candidate;
+        }
+        return '';
+    }
+
+    private function runBinary(array $command, int $timeout): array
+    {
+        $stdout = tempnam(sys_get_temp_dir(), 'ats-command-out-');
+        $stderr = tempnam(sys_get_temp_dir(), 'ats-command-err-');
+        if ($stdout === false || $stderr === false) {
+            if ($stdout !== false) @unlink($stdout);
+            if ($stderr !== false) @unlink($stderr);
+            throw new \RuntimeException('Could not prepare temporary image extraction output.');
+        }
+        try {
+            $process = proc_open($command, [0 => ['pipe', 'r'], 1 => ['file', $stdout, 'w'], 2 => ['file', $stderr, 'w']], $pipes, null, null, ['bypass_shell' => true]);
+            if (!is_resource($process)) throw new \RuntimeException('Could not start local image extraction.');
+            fclose($pipes[0]);
+            $started = microtime(true); $status = null;
+            do {
+                $processStatus = proc_get_status($process);
+                if (!$processStatus['running']) { $status = $processStatus['exitcode']; break; }
+                if (microtime(true) - $started > $timeout) { proc_terminate($process, 9); proc_close($process); throw new \RuntimeException('Image extraction took too long.'); }
+                usleep(100000);
+            } while (true);
+            $closedStatus = proc_close($process);
+            if (($status === null || $status < 0) && $closedStatus >= 0) $status = $closedStatus;
+            $output = is_file($stdout) ? (string)file_get_contents($stdout) : '';
+            return ['exit' => (int)$status, 'stdout' => mb_substr($output, 0, 2000000)];
+        } finally {
+            @unlink($stdout);
+            @unlink($stderr);
+        }
     }
 
     private function uploadError(int $code): string

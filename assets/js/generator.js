@@ -3,7 +3,7 @@
   const aiProvider = window.ATS_AI_PROVIDER || 'configured AI provider';
   const aiEnabled = window.ATS_AI_ENABLED === true;
   const initial = document.getElementById('initialCv');
-  const emptyCv = () => ({schema_version:1,personal:{name:'',title:'',phone:'',email:'',location:'',linkedin:'',github:''},enabled_sections:{summary:true,skills:true,experience:true,education:true,projects:true,certifications:true,languages:true,custom_sections:true},summary:'',skills:[],experience:[],education:[],projects:[],certifications:[],languages:[],custom_sections:[]});
+  const emptyCv = () => ({schema_version:1,personal:{name:'',title:'',phone:'',email:'',location:'',linkedin:'',github:'',photo:''},enabled_sections:{summary:true,skills:true,experience:true,education:true,projects:true,certifications:true,languages:true,custom_sections:true},summary:'',skills:[],experience:[],education:[],projects:[],certifications:[],languages:[],custom_sections:[]});
   let state = JSON.parse(initial?.textContent || '{}');
   if (!state.personal) state = emptyCv();
   let draftId = 0;
@@ -51,6 +51,42 @@
     control.addEventListener('input', () => {setter(multiline && key === 'bullets' ? control.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean) : control.value);schedulePreview();if(aiEnabled&&['summary','bullets'].includes(key))renderAutofixTargets();});
     wrap.append(control); parent.append(wrap);
   }
+  function addPhotoField(parent) {
+    const wrap=document.createElement('div');wrap.className='form-field wide photo-field';
+    const label=document.createElement('span');label.className='photo-field-label';label.textContent='Profile photo (optional)';wrap.append(label);
+    const row=document.createElement('div');row.className='photo-controls';
+    const preview=document.createElement('img');preview.className='photo-thumbnail';preview.alt='Profile photo preview';preview.hidden=true;
+    const actions=document.createElement('div');actions.className='photo-actions';
+    const choose=document.createElement('label');choose.className='button button-light photo-file-button';choose.append(document.createTextNode('Choose or replace photo'));
+    const input=document.createElement('input');input.className='photo-file-input';input.type='file';input.accept='image/jpeg,image/png,image/webp';input.setAttribute('aria-label','Choose a profile photo');choose.append(input);
+    input.addEventListener('change',()=>{
+      const file=input.files?.[0];if(!file)return;
+      if(file.size>10*1024*1024){flash('Choose a photo smaller than 10 MB.');input.value='';return;}
+      if(!['image/jpeg','image/png','image/webp'].includes(file.type)){flash('Choose a JPEG, PNG, or WebP image.');input.value='';return;}
+      const objectUrl=URL.createObjectURL(file),image=new Image();
+      image.onload=()=>{
+        URL.revokeObjectURL(objectUrl);
+        if(image.naturalWidth<32||image.naturalHeight<32||image.naturalWidth>6000||image.naturalHeight>6000||image.naturalWidth*image.naturalHeight>20000000){flash('This photo has unsupported dimensions.');input.value='';return;}
+        let sx=0,sy=0,sw=image.naturalWidth,sh=image.naturalHeight;const ratio=.75;
+        if(sw/sh>ratio){sw=Math.floor(sh*ratio);sx=Math.floor((image.naturalWidth-sw)/2);}else{sh=Math.floor(sw/ratio);sy=Math.floor((image.naturalHeight-sh)/2);}
+        const scale=Math.min(384/sw,512/sh,1),width=Math.max(1,Math.round(sw*scale)),height=Math.max(1,Math.round(sh*scale));
+        const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;const context=canvas.getContext('2d');if(!context){flash('Photo editing is unavailable in this browser.');input.value='';return;}
+        context.fillStyle='#fff';context.fillRect(0,0,width,height);context.drawImage(image,sx,sy,sw,sh,0,0,width,height);
+        let photo=canvas.toDataURL('image/jpeg',.8);
+        if(photo.length>533000)photo=canvas.toDataURL('image/jpeg',.64);
+        if(photo.length>533000){canvas.width=288;canvas.height=384;const small=canvas.getContext('2d');small.fillStyle='#fff';small.fillRect(0,0,288,384);small.drawImage(image,sx,sy,sw,sh,0,0,288,384);photo=canvas.toDataURL('image/jpeg',.62);}
+        if(photo.length>533000){flash('This photo could not be reduced enough. Choose a smaller image.');input.value='';return;}
+        state.personal.photo=photo;renderEditor();schedulePreview();flash('Profile photo updated.');
+      };
+      image.onerror=()=>{URL.revokeObjectURL(objectUrl);input.value='';flash('This photo could not be read.');};image.src=objectUrl;
+    });
+    const remove=document.createElement('button');remove.type='button';remove.className='text-button photo-remove';remove.textContent='Remove photo';remove.hidden=!state.personal.photo;
+    remove.addEventListener('click',()=>{state.personal.photo='';renderEditor();schedulePreview();flash('Profile photo removed.');});
+    actions.append(choose,remove);
+    const hint=document.createElement('span');hint.className='photo-hint';hint.textContent='Only appears when you add one. The photo is cropped to a portrait shape for the CV header.';
+    row.append(preview,actions,hint);wrap.append(row);parent.append(wrap);
+    if(state.personal.photo){preview.src=state.personal.photo;preview.hidden=false;}
+  }
   function autofixTargets() {
     const targets=[];
     if(state.enabled_sections?.summary!==false&&String(state.summary||'').trim())targets.push({id:'summary',label:'Professional summary',text:String(state.summary)});
@@ -92,6 +128,7 @@
     const personal = block('Contact details','Keep your name and contact information in the document body.');
     const pgrid = document.createElement('div'); pgrid.className = 'field-grid';
     [['name','Full name'],['title','Professional title'],['email','Email'],['phone','Phone'],['location','Location'],['linkedin','LinkedIn URL'],['github','GitHub / portfolio URL']].forEach(([key,label]) => addField(pgrid,label,key,state.personal[key],value=>state.personal[key]=value));
+    addPhotoField(pgrid);
     personal.section.append(pgrid); editor.append(personal.section);
     const summary = block('Professional summary','Write a short overview supported by examples in your CV.','summary');
     const sgrid = document.createElement('div'); sgrid.className='field-grid'; addField(sgrid,'Summary','summary',state.summary,value=>state.summary=value,true); summary.section.append(sgrid); editor.append(summary.section);

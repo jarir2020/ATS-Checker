@@ -149,8 +149,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             jsonResponse(['ok' => true, 'format' => $file['format'], 'text' => $file['text'], 'result' => $result]);
         }
         if ($action === 'import_file') {
-            $extracted = (new CvImporter())->extractUpload($_FILES['cv_file'] ?? []);
-            $mapped = (new CvImporter())->mapToCv($extracted['text']);
+            $importer = new CvImporter();
+            $extracted = $importer->extractUpload($_FILES['cv_file'] ?? [], true);
+            $mapped = $importer->mapToCv($extracted['text'], $extracted['photo'] ?? '');
             $_SESSION['imported_cv'] = $mapped['cv'];
             jsonResponse(['ok' => true, 'format' => $extracted['format'], 'cv' => $mapped['cv'], 'text' => $extracted['text'], 'notes' => $mapped['notes']]);
         }

@@ -40,8 +40,9 @@ The old CV Maker is retained as migration reference only. It will be replaced du
 - Support contact details, professional summary, skills, experience, education, projects, certifications, languages, and optional user-defined sections.
 - Allow users to add, remove, and reorder repeated entries. Present experience and education in reverse chronological order where dates are available.
 - Make the default template a readable, single-column layout with standard section headings, selectable text, conventional bullets, and a predictable top-to-bottom reading order.
-- Avoid layout elements that can disrupt text extraction, such as sidebars, multi-column layouts, decorative icons, charts, images, and important information in headers or footers. Compact clickable LinkedIn and GitHub/portfolio icons are allowed when a valid URL is supplied; retain full URLs in DOCX and plain-text exports.
+- Avoid layout elements that can disrupt text extraction, such as sidebars, multi-column layouts, decorative icons, charts, and important information in headers or footers. An optional profile photo may appear at the top-right of the contact block when the source CV contains one; the rest of the CV stays single-column. Compact clickable LinkedIn and GitHub/portfolio icons are allowed when a valid URL is supplied; retain full URLs in DOCX and plain-text exports.
 - Keep a live preview and saved drafts. Render the preview and exports from the same data and formatting rules to prevent the current PHP/JavaScript template drift.
+- Keep the profile photo optional: when present, show a small portrait at the top-right of the contact block; when absent, leave no placeholder or reserved space.
 - Provide an on-demand text view extracted from the generated PDF. Show the extracted reading order and warn about incomplete numeric dates or expected section headings that are missing or out of order; explain that ATS products can parse the same document differently.
 
 ### Checker
@@ -53,7 +54,7 @@ The old CV Maker is retained as migration reference only. It will be replaced du
 
 ### Converter
 
-- Parse supported DOCX and text-based PDF files locally into the canonical CV model.
+- Parse supported DOCX and text-based PDF files locally into the canonical CV model. Detect likely embedded profile photos while filtering out small logos and other non-portrait images; photo absence is normal and must not block import.
 - Show extracted content in an editable review step before saving or exporting. Keep the uploaded source unchanged.
 - Clearly report content that could not be mapped. Do not claim OCR support for image-only PDFs in the first version.
 
@@ -62,12 +63,14 @@ The old CV Maker is retained as migration reference only. It will be replaced du
 - Export DOCX, text-based PDF, plain text, and HTML from the same canonical CV data.
 - Preserve readable text in PDF; do not rasterize the CV. Make HTML a clean preview/print option.
 - In visual HTML/PDF output, show LinkedIn and GitHub/portfolio links as clickable icons only when their URLs are present and valid; keep their full URLs in DOCX and plain-text output for text-based ATS workflows.
+- Store an extracted or user-selected photo as a validated, resized image in the existing CV JSON payload. Show it in the visual preview, PDF, and DOCX at the top-right of the contact block; omit it from plain-text output. Do not change the `draft_cvs` schema for photo support.
 - Process file imports locally on the application server. Delete temporary uploads after processing and avoid retaining source files by default.
 - Apply file-size and type limits, validate uploads, escape imported text, and protect state-changing requests with CSRF tokens.
 
 ### AI assistance (opt-in)
 
 - Let users request a rewrite of selected summary or experience bullets for a target job description. Show the original and proposed text side by side and require the user to accept edits.
+- Keep profile photos local; do not send image data to AI providers.
 - Add a review-first ATS autofixer that runs deterministic checks on the current structured CV, sends only user-selected summary/bullet text and finding titles/messages after consent, and applies individual suggestions to the editor only. Never auto-save fixes.
 - Suggest relevant skills and job-description terms based on evidence in the CV. Label missing terms as gaps to review; never present them as skills the user has unless the user confirms them.
 - Explain checker findings in plain language and suggest edits. Keep the ATS readability checks and any numeric score deterministic and separate from AI advice.
@@ -148,6 +151,8 @@ Use the existing mPDF installation for PDF output. Before adding DOCX/PDF parsin
 - The converter means **import and normalize an existing CV into the ATS editor**, rather than a general-purpose document converter.
 - Initial output formats are **DOCX, PDF, TXT, and HTML**; initial import formats are **DOCX and text-based PDF**.
 - In visual HTML/PDF output, show valid LinkedIn and GitHub links as compact clickable icons; keep full social URLs in DOCX and TXT output.
+- Profile photos are optional. The converter stages a likely portrait found in embedded PDF/DOCX images for user review, ignores other graphics, and leaves the photo field empty when none is found. Users can replace or remove a staged photo in the generator.
+- The photo is normalized to a small JPEG and stored in the existing `cv_data` JSON payload. Preview, PDF, and DOCX place it to the right of contact text; TXT omits it. No database schema change is needed.
 - AI assistance is optional and user-initiated. The ATS autofixer may propose rewrites only for selected summary/bullet text; each change requires user review before it reaches the editor, and the user saves manually. AI cannot add unverified qualifications, silently change a saved CV, or provide an opaque ATS pass/fail score.
 - Image-only PDF OCR, automatic keyword insertion, user accounts, and general toolbox utilities are out of the first version's scope.
 - The shared-password login screen and its access gate were removed at the user's request. The legacy `login.php` and `logout.php` URLs redirect to the app home.
@@ -160,9 +165,9 @@ Use the existing mPDF installation for PDF output. Before adding DOCX/PDF parsin
 - Foundation and compatibility: implemented. A versioned canonical CV schema, legacy JSON adapter, shared renderer, CSRF helpers, and prepared-statement draft repository are in place. At the user's direction, the local database is `cv_maker`; its `draft_cvs` schema was initialized. No draft rows were copied from `toolbox`, which was left untouched.
 - Generator: implemented. The app now has repeatable editable sections, a server-rendered preview, draft save/load/delete, an ATS-first one-column template, and an on-demand generated-PDF text check with date-fragment and section-heading warnings. Experience and education are sorted newest-first when dates can be read.
 - Checker: implemented. Rule-based findings and heuristic scoring cover common headings, contact details, date styles and incomplete numeric date fragments, bullets, measurable results, possible extraction artifacts, and optional job-description terms.
-- Converter: implemented. DOCX and selectable-text PDF extraction are local, size-limited, and temporary-file based. Common experience, education, project, certification, and language content is mapped into editable fields where possible; less common headings remain in editable custom sections. Optional AI mapping uses an editable excerpt and requires a deliberate review action before staging the suggested CV.
+- Converter: implemented. DOCX and selectable-text PDF extraction are local, size-limited, and temporary-file based. Likely embedded portraits are selected by image dimensions and shape, resized/cropped locally, and staged for review; other graphics and CVs without photos leave the photo field empty. Common experience, education, project, certification, and language content is mapped into editable fields where possible; less common headings remain in editable custom sections. Optional AI mapping uses an editable excerpt and requires a deliberate review action before staging the suggested CV; the photo stays local.
 - Checker: findings include a named affected area and concise evidence text alongside severity and guidance.
-- Exports: implemented in code for DOCX, text-based PDF, TXT, and HTML using the canonical CV renderer.
+- Exports: implemented in code for DOCX, text-based PDF, TXT, and HTML using the canonical CV renderer. Optional photos appear at the top-right of visual, PDF, and DOCX output; text exports omit them.
 - AI: implemented in code for opt-in Gemini and Agnes summary and experience-bullet rewrites, a review-first ATS autofixer, job-term suggestions, checker explanations, and import mapping. The autofixer runs local rule checks, sends only selected summary/bullet text and finding titles/messages, shows before/after text, and applies a suggestion to the unsaved editor only after the user clicks its button. It does not invent missing facts or save drafts. Other requests are server-side, use session limits, and require user review. Import mapping uses an editable excerpt of up to 16 KB and stages its proposed CV only after the user chooses to review it in the generator. AI controls are hidden when the selected provider key is missing, and server routes reject AI requests in that state. Gemini requests set `store: false` and can fall through configured models after overload/rate-limit/model-availability errors; Agnes requests use the documented OpenAI-compatible Chat Completions API and send no storage preference. `AI_PROVIDER` selects the configured adapter. Other providers remain out of scope until their APIs are confirmed.
 - Local configuration: `.env.example` documents the app, database, and supported AI settings. Local provider credentials remain only in the ignored `.env` and are not stored in source control. The Agnes model field is intentionally blank so the owner can use a model ID enabled for their account. `APP_PASSWORD_HASH` is no longer required because the app has no login screen.
-- Acceptance, production-host checks, browser walkthroughs, and deployment have not been completed in this implementation pass. Generic Gemini connectivity probes confirmed responses from Gemini 3.6 Flash, 3.5 Flash-Lite, and 2.5 Flash; 3.8 Flash was temporarily unavailable during probing. The `cv_maker` schema setup was applied successfully; no draft rows were copied from `toolbox`, which remains untouched.
+- The supplied PDF's embedded portrait was manually extracted and visually checked in the generated PDF header. DOCX image packaging and import round-trip were checked, and no-photo output was checked to contain no image. Full browser walkthroughs, production-host checks, and deployment have not been completed. Generic Gemini connectivity probes confirmed responses from Gemini 3.6 Flash, 3.5 Flash-Lite, and 2.5 Flash; 3.8 Flash was temporarily unavailable during probing. The `cv_maker` schema setup was applied successfully; no draft rows were copied from `toolbox`, which remains untouched.
