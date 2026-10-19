@@ -15,12 +15,22 @@ final class CvRenderer
         $cv['education'] = self::recentFirst($cv['education'], 'year', 'year');
         $p = $cv['personal'];
         $html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . self::e($p['name'] ?: 'CV') . '</title><style>';
-        $html .= 'body{font-family:Arial,Helvetica,sans-serif;color:#171717;font-size:11pt;line-height:1.45;margin:0 auto;padding:28px;max-width:780px}h1{font-size:22pt;margin:0 0 2px}h2{font-size:12pt;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #444;padding-bottom:3px;margin:18px 0 8px}h3{font-size:11pt;margin:0 0 2px}p{margin:3px 0 7px}.meta,.subtle{color:#333}.entry{margin:0 0 9px}.date,.date-token{font-weight:normal;white-space:nowrap}.cv-list{padding-left:18px;margin:4px 0}.contacts{margin:4px 0 10px;overflow-wrap:anywhere}.small{font-size:10pt}@media print{body{max-width:none;padding:0}}';
+        $html .= 'body{font-family:Arial,Helvetica,sans-serif;color:#171717;font-size:11pt;line-height:1.45;margin:0 auto;padding:28px;max-width:780px}h1{font-size:22pt;margin:0 0 2px}h2{font-size:12pt;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid #444;padding-bottom:3px;margin:18px 0 8px}h3{font-size:11pt;margin:0 0 2px}p{margin:3px 0 7px}.meta,.subtle{color:#333}.entry{margin:0 0 9px}.date,.date-token{font-weight:normal;white-space:nowrap}.cv-list{padding-left:18px;margin:4px 0}.contacts{margin:4px 0 10px;overflow-wrap:anywhere}.contact-divider{display:inline-block;margin:0 4px;color:#666}.social-links{display:inline-block;white-space:nowrap;vertical-align:middle}.social-link{display:inline-block;width:18px;height:18px;text-align:center;text-decoration:none;vertical-align:middle;margin:0 1px}.social-mark-svg{display:inline-block;vertical-align:middle}.social-mark-svg svg{display:block;width:17px;height:17px}.small{font-size:10pt}@media print{body{max-width:none;padding:0}}';
         $html .= '</style></head><body>';
         $html .= '<h1>' . self::e($p['name']) . '</h1>';
         if ($p['title'] !== '') $html .= '<p class="subtle">' . self::e($p['title']) . '</p>';
-        $contacts = array_filter([$p['email'], $p['phone'], $p['location'], $p['linkedin'], $p['github']]);
-        if ($contacts) $html .= '<p class="contacts small">' . implode(' | ', array_map([self::class, 'e'], $contacts)) . '</p>';
+        $contactText = array_values(array_filter([$p['email'], $p['phone'], $p['location']], static fn($value) => trim($value) !== ''));
+        $contactItems = array_map([self::class, 'e'], $contactText);
+        $socialLinks = array_filter([
+            self::socialLink('linkedin', $p['linkedin']),
+            self::socialLink('github', $p['github']),
+        ]);
+        $contactHtml = implode(' <span class="contact-divider" aria-hidden="true">|</span> ', $contactItems);
+        if ($socialLinks) {
+            if ($contactHtml !== '') $contactHtml .= ' <span class="contact-divider" aria-hidden="true">|</span> ';
+            $contactHtml .= '<span class="social-links">' . implode(' &nbsp; ', $socialLinks) . '</span>';
+        }
+        if ($contactHtml !== '') $html .= '<p class="contacts small">' . $contactHtml . '</p>';
         if ($cv['enabled_sections']['summary'] && $cv['summary'] !== '') $html .= self::section('Summary', '<p>' . nl2br(self::e($cv['summary'])) . '</p>');
         if ($cv['enabled_sections']['skills'] && $cv['skills']) {
             $body = '';
@@ -104,6 +114,46 @@ final class CvRenderer
     private static function section(string $title, string $body): string
     {
         return '<section><h2>' . self::e($title) . '</h2>' . $body . '</section>';
+    }
+
+    private static function socialLink(string $platform, string $value): string
+    {
+        $url = self::safeWebUrl($value);
+        if ($url === null) return '';
+
+        $label = $platform === 'linkedin' ? 'LinkedIn' : 'GitHub or portfolio';
+        $class = $platform;
+        if ($platform === 'github') {
+            $host = strtolower((string)parse_url($url, PHP_URL_HOST));
+            if ($host !== 'github.com' && substr($host, -11) !== '.github.com') {
+                $class = 'website';
+                $label = 'Portfolio website';
+            }
+        }
+
+        if ($class === 'linkedin') {
+            $svg = '<svg viewBox="0 0 24 24" width="17" height="17" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="#0a66c2" d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.35V9h3.414v1.561h.049c.476-.9 1.637-1.85 3.37-1.85 3.6 0 4.264 2.37 4.264 5.455v6.286ZM5.337 7.433a2.062 2.062 0 1 1 0-4.124 2.062 2.062 0 0 1 0 4.124Zm1.782 13.019H3.555V9h3.564v11.452ZM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003Z"/></svg>';
+        } elseif ($class === 'github') {
+            $svg = '<svg viewBox="0 0 24 24" width="17" height="17" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="#181717" d="M12 .297a12 12 0 0 0-3.79 23.39c.6.111.82-.259.82-.577v-2.234c-3.338.726-4.043-1.416-4.043-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.729.083-.729 1.205.085 1.84 1.237 1.84 1.237 1.07 1.835 2.807 1.305 3.492.997.108-.775.418-1.305.762-1.604-2.665-.305-5.466-1.332-5.466-5.93 0-1.31.469-2.381 1.236-3.221-.124-.303-.536-1.524.117-3.176 0 0 1.008-.322 3.301 1.23a11.5 11.5 0 0 1 6.004 0c2.293-1.552 3.297-1.23 3.297-1.23.655 1.652.243 2.873.12 3.176.77.84 1.235 1.911 1.235 3.221 0 4.61-2.805 5.621-5.477 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.216.694.825.576A12.005 12.005 0 0 0 12 .297Z"/></svg>';
+        } else {
+            $svg = '<svg viewBox="0 0 24 24" width="17" height="17" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><path fill="none" stroke="#444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 3h7v7M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
+        }
+
+        $icon = '<span class="social-mark-svg" style="display:inline-block" aria-hidden="true">' . $svg . '</span>';
+        return '<a class="social-link ' . self::e($class) . '" href="' . self::e($url) . '" target="_blank" rel="noopener noreferrer" aria-label="' . self::e($label) . '" title="' . self::e($label) . '">' . $icon . '</a>';
+    }
+
+    private static function safeWebUrl(string $value): ?string
+    {
+        $value = trim($value);
+        if ($value === '' || preg_match('/[\x00-\x20\x7f]/', $value)) return null;
+        if (substr($value, 0, 2) === '//') $value = 'https:' . $value;
+        elseif (!preg_match('/^https?:\/\//i', $value)) $value = 'https://' . $value;
+
+        $parts = parse_url($value);
+        if (!is_array($parts) || !isset($parts['scheme'], $parts['host']) || !in_array(strtolower($parts['scheme']), ['http', 'https'], true)) return null;
+        if (isset($parts['user']) || isset($parts['pass']) || filter_var($value, FILTER_VALIDATE_URL) === false) return null;
+        return $value;
     }
 
     private static function bullets(array $items): string

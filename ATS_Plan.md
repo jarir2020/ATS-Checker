@@ -40,7 +40,7 @@ The old CV Maker is retained as migration reference only. It will be replaced du
 - Support contact details, professional summary, skills, experience, education, projects, certifications, languages, and optional user-defined sections.
 - Allow users to add, remove, and reorder repeated entries. Present experience and education in reverse chronological order where dates are available.
 - Make the default template a readable, single-column layout with standard section headings, selectable text, conventional bullets, and a predictable top-to-bottom reading order.
-- Avoid layout elements that can disrupt text extraction, such as sidebars, multi-column layouts, decorative icons, charts, images, and important information in headers or footers.
+- Avoid layout elements that can disrupt text extraction, such as sidebars, multi-column layouts, decorative icons, charts, images, and important information in headers or footers. Compact clickable LinkedIn and GitHub/portfolio icons are allowed when a valid URL is supplied; retain full URLs in DOCX and plain-text exports.
 - Keep a live preview and saved drafts. Render the preview and exports from the same data and formatting rules to prevent the current PHP/JavaScript template drift.
 - Provide an on-demand text view extracted from the generated PDF. Show the extracted reading order and warn about incomplete numeric dates or expected section headings that are missing or out of order; explain that ATS products can parse the same document differently.
 
@@ -61,6 +61,7 @@ The old CV Maker is retained as migration reference only. It will be replaced du
 
 - Export DOCX, text-based PDF, plain text, and HTML from the same canonical CV data.
 - Preserve readable text in PDF; do not rasterize the CV. Make HTML a clean preview/print option.
+- In visual HTML/PDF output, show LinkedIn and GitHub/portfolio links as clickable icons only when their URLs are present and valid; keep their full URLs in DOCX and plain-text output for text-based ATS workflows.
 - Process file imports locally on the application server. Delete temporary uploads after processing and avoid retaining source files by default.
 - Apply file-size and type limits, validate uploads, escape imported text, and protect state-changing requests with CSRF tokens.
 
@@ -146,6 +147,7 @@ Use the existing mPDF installation for PDF output. Before adding DOCX/PDF parsin
 
 - The converter means **import and normalize an existing CV into the ATS editor**, rather than a general-purpose document converter.
 - Initial output formats are **DOCX, PDF, TXT, and HTML**; initial import formats are **DOCX and text-based PDF**.
+- In visual HTML/PDF output, show valid LinkedIn and GitHub links as compact clickable icons; keep full social URLs in DOCX and TXT output.
 - AI assistance is optional and user-initiated. The ATS autofixer may propose rewrites only for selected summary/bullet text; each change requires user review before it reaches the editor, and the user saves manually. AI cannot add unverified qualifications, silently change a saved CV, or provide an opaque ATS pass/fail score.
 - Image-only PDF OCR, automatic keyword insertion, user accounts, and general toolbox utilities are out of the first version's scope.
 - The shared-password login screen and its access gate were removed at the user's request. The legacy `login.php` and `logout.php` URLs redirect to the app home.
